@@ -202,7 +202,8 @@ class TrainLoop():
 
         # logging
         if opt['tensorboard_log'] is True:
-            self.writer.add_metrics('valid', int(math.floor(self.train_time.time())), valid_report)
+            total_exs = self.world.get_total_exs()
+            self.writer.add_metrics('valid', total_exs, valid_report) # log val metrics w.r.t. total_exs; same as train
         # saving
         if opt.get('model_file') and opt.get('save_after_valid'):
             print("[ saving model checkpoint: " + opt['model_file'] + ".checkpoint ]")
