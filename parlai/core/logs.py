@@ -52,8 +52,8 @@ class TensorboardLogger(Shared):
         print('[ Saving tensorboard logs here: {} ]'.format(tbpath))
         if not os.path.exists(tbpath):
             os.makedirs(tbpath)
-        self.writer = SummaryWriter(
-            log_dir='{}/{}'.format(tbpath, tensorboard_tag))
+        log_dir='{}/{}'.format(tbpath, tensorboard_tag)
+        self.writer = SummaryWriter(log_dir=log_dir))
         if opt['tensorboard_metrics'] == None:
             self.tbmetrics = ['ppl', 'loss']
         else:
@@ -90,3 +90,8 @@ class TensorboardLogger(Shared):
 
     def add_text(self, name, text, step=None):
         self.writer.add_text(name, text, step)
+
+    def add_embedding(self, embeddings, metadata=None, tag='embeddings', step=None):
+        if metadata:
+            assert len(metadata)==embeddings.size(0)
+        self.writer.add_embedding(embeddings, metadata=metadata, tag=tag, global_step=step)
