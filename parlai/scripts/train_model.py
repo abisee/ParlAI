@@ -91,6 +91,9 @@ def setup_args(parser=None):
                        help='use a shared copy of the agent for validation. '
                             'this will eventually default to True, but '
                             'currently defaults to False.')
+    train.add_argument('-db', '--debug', type='bool',
+                       default=False,
+                       help='If set to True, World.__exit__ immediately raises exceptions rather than running shutdown')
     TensorboardLogger.add_cmdline_args(parser)
     parser = setup_dict_args(parser)
     return parser
