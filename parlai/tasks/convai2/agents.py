@@ -19,16 +19,18 @@ label candidates, specify this using the task flag:
 where TEACHER_NAME is None, SelfOriginal (Self), or SelfRevised.
 '''
 
+
 def _path(opt, persona, use_cands):
     # Build the data if it doesn't exist.
     build(opt)
-    datatype =  opt['datatype'].split(':')[0]
+    datatype = opt['datatype'].split(':')[0]
     if datatype == 'test':
         print("WARNING: Test set not included. Setting datatype to valid.")
         datatype = 'valid'
     dt = datatype + '_' + persona
     cands = '' if use_cands else '_no_cands'
     return os.path.join(opt['datapath'], 'ConvAI2', dt + cands + '.txt')
+
 
 class NoneTeacher(FbDialogTeacher):
     def __init__(self, opt, shared=None):
@@ -41,6 +43,7 @@ class NoneTeacher(FbDialogTeacher):
         opt['datafile'] = _path(opt, 'none_original', use_cands)
         super().__init__(opt, shared)
 
+
 class SelfOriginalTeacher(FbDialogTeacher):
     def __init__(self, opt, shared=None):
         opt = copy.deepcopy(opt)
@@ -52,8 +55,10 @@ class SelfOriginalTeacher(FbDialogTeacher):
         opt['datafile'] = _path(opt, 'self_original', use_cands)
         super().__init__(opt, shared)
 
+
 class SelfTeacher(SelfOriginalTeacher):
     pass
+
 
 class SelfRevisedTeacher(FbDialogTeacher):
     def __init__(self, opt, shared=None):
@@ -66,6 +71,7 @@ class SelfRevisedTeacher(FbDialogTeacher):
         opt['datafile'] = _path(opt, 'self_revised', use_cands)
         super().__init__(opt, shared)
 
+
 class BothOriginalTeacher(FbDialogTeacher):
     def __init__(self, opt, shared=None):
         opt = copy.deepcopy(opt)
@@ -77,8 +83,10 @@ class BothOriginalTeacher(FbDialogTeacher):
         opt['datafile'] = _path(opt, 'both_original', use_cands)
         super().__init__(opt, shared)
 
+
 class BothTeacher(BothOriginalTeacher):
     pass
+
 
 class BothRevisedTeacher(FbDialogTeacher):
     def __init__(self, opt, shared=None):
@@ -90,6 +98,7 @@ class BothRevisedTeacher(FbDialogTeacher):
             use_cands = True
         opt['datafile'] = _path(opt, 'both_revised', use_cands)
         super().__init__(opt, shared)
+
 
 class DefaultTeacher(SelfOriginalTeacher):
     pass
