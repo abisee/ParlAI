@@ -117,7 +117,7 @@ def eval_wordstat(opt, print_parser=None):
     cnt = 0
     word_statistics = {'mean_wlength': [], 'mean_clength': [], 'freqs_cnt': Counter(), 'word_cnt': 0, 'pred_list': [], 'pure_pred_list': [], 'context_list': []}
     bins = [int(i) for i in opt['freq_bins'].split(',')]
-    
+
     def process_prediction(prediction, word_statistics):
         word_statistics['pred_list'].append(normalize_answer(prediction))
         freqs, _cnt, wlength, clength = get_word_stats(prediction, dictionary, bins=bins)
@@ -153,8 +153,9 @@ def eval_wordstat(opt, print_parser=None):
             stat_str = 'total_words: {}, '.format(word_statistics['word_cnt']) + ', '.join(
                 ['<{}:{} ({:.{prec}f}%)'.format(b, word_statistics['freqs_cnt'].get(b, 0), (word_statistics['freqs_cnt'].get(b, 0) / word_statistics['word_cnt']) * 100, prec=2)
                  for b in bins])
-            print("Word statistics: {}, avg_word_length: {:.{prec}f}, avg_char_length: {:.{prec}f}".format(
-                stat_str, numpy.array(word_statistics['mean_wlength']).mean(), numpy.array(word_statistics['mean_clength']).mean(), prec=2))
+            stat_str = "Word statistics: {}, avg_word_length: {:.{prec}f}, avg_char_length: {:.{prec}f}".format(
+                stat_str, numpy.array(word_statistics['mean_wlength']).mean(), numpy.array(word_statistics['mean_clength']).mean(), prec=2)
+            print(stat_str)
         if opt['num_examples'] > 0 and cnt >= opt['num_examples']:
             break
     if world.epoch_done():
@@ -166,7 +167,8 @@ def eval_wordstat(opt, print_parser=None):
         for k,v in cntr.items():
             if v == 1:
                 unique_list.append(k)
-        print("Unique responses: {:.{prec}f}%".format(len(unique_list) / len(word_statistics['pred_list']) * 100, prec=2))
+        unique_stat_str = "Unique responses: {:.{prec}f}%".format(len(unique_list) / len(word_statistics['pred_list']) * 100, prec=2)
+        print(unique_stat_str)
 
     if opt['dump_predictions_path'] is not None:
         with open(opt['dump_predictions_path'], 'w') as f:
@@ -177,6 +179,15 @@ def eval_wordstat(opt, print_parser=None):
 
     report = world.report()
     print(report)
+
+    # write results to file
+    outfile = "%s.%s.%s" % (opt.get('model_file'), opt.get('datatype'), "wordstats")
+    print("writing to %s" % outfile)
+    with open(outfile, 'w') as f:
+        f.write("%s: %s\n" % (opt.get('datatype'), str(report)))
+        f.write(stat_str + "\n")
+        f.write(unique_stat_str + "\n")
+
     return report
 
 
