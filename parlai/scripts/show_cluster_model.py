@@ -189,7 +189,15 @@ def eval_model(opt, printargs=None, print_parser=None):
         target_clusterid = int(world.acts[0]['target_clusterid'])
         print("target cluster %i (%s)" % (target_clusterid, show_cluster_keywords(clusterid2tfidfs, target_clusterid, num_samples=10)))
         print("target:      %s" % world.acts[0]['eval_labels'][0])
-        print("generated:   %s" % world.acts[1]['text'])
+
+        pred_clusterid = world.acts[1]['text'] # text
+        assert pred_clusterid[:8]=="cluster "
+        pred_clusterid = int(pred_clusterid[8:])
+        print("predicted cluster %i (%s)" % (pred_clusterid, show_cluster_keywords(clusterid2tfidfs, pred_clusterid, num_samples=10)))
+
+        top_clusters = [int(i) for i in world.acts[1]['class_ranking'].split(',')] # list of ints
+        print("top clusters: ", ", ".join(["%i (%s)" % (i, show_cluster_keywords(clusterid2tfidfs, i, num_samples=3)) for i in top_clusters[:10]]))
+
         print("")
         if world.acts[0].get('episode_done', False):
             print("==========")
