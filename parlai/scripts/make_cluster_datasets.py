@@ -16,8 +16,13 @@ from parlai.core.utils import msg_to_str
 import random
 
 
-def read_clusterfile(cluster_fname):
+def read_clusterfile(cluster_fname, with_dups=False):
+    """
+    if with_dups is True, then clusterid2lst contains duplicates.
+    text2cluster never contains duplicates.
+    """
     text2cluster = {}
+    clusterid2lst = {}
     with open(cluster_fname, 'r') as f:
         for line in f:
             line = line.strip()
@@ -26,11 +31,11 @@ def read_clusterfile(cluster_fname):
             cluster_id = int(cluster_id)
             text2cluster[text] = cluster_id
 
-    clusterid2lst = {}
-    for text, clusterid in text2cluster.items():
-        if clusterid not in clusterid2lst:
-            clusterid2lst[clusterid] = []
-        clusterid2lst[clusterid].append(text)
+            if cluster_id not in clusterid2lst:
+                clusterid2lst[cluster_id] = []
+
+            if with_dups or (not with_dups and text not in clusterid2lst[cluster_id]):
+                clusterid2lst[cluster_id].append(text)
 
     return text2cluster, clusterid2lst
 
