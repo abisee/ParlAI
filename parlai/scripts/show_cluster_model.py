@@ -139,6 +139,7 @@ def eval_model(opt, printargs=None, print_parser=None):
     print_parser -- if provided, prints the options that are set within the
         model after loading the model
     """
+    assert opt.get('batchsize')==1
     if printargs is not None:
         print('[ Deprecated Warning: eval_model no longer uses `printargs` ]')
         print_parser = printargs
@@ -196,7 +197,11 @@ def eval_model(opt, printargs=None, print_parser=None):
         print("predicted cluster %i (%s)" % (pred_clusterid, show_cluster_keywords(clusterid2tfidfs, pred_clusterid, num_samples=10)))
 
         top_clusters = [int(i) for i in world.acts[1]['class_ranking'].split(',')] # list of ints
+        num_clusters = len(top_clusters)
         print("top clusters: ", ", ".join(["%i (%s)" % (i, show_cluster_keywords(clusterid2tfidfs, i, num_samples=3)) for i in top_clusters[:10]]))
+
+        gold_cluster_rank = top_clusters.index(target_clusterid)+1 # int in range [1,num_clusters]
+        print("target cluster rank: %i/%i" % (gold_cluster_rank, num_clusters))
 
         print("")
         if world.acts[0].get('episode_done', False):
