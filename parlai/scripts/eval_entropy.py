@@ -24,6 +24,7 @@ from math import log
 
 
 def entropy(clusterid_lst):
+    assert isinstance(clusterid_lst, list)
     counter = Counter()
     counter.update(clusterid_lst)
     total = len(clusterid_lst)
