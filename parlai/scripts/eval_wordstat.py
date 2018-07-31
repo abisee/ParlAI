@@ -141,6 +141,13 @@ def eval_wordstat(opt, print_parser=None):
             for w in world.worlds:
                 try:
                     prediction = w.acts[-1]['text']
+
+                    # ===== to measure wordstats on gold responses: ======
+                    # prediction = w.acts[0]['eval_labels']
+                    # assert len(prediction)==1
+                    # prediction = prediction[0]
+                    # =======================================
+
                     word_statistics['context_list'].append(w.acts[0]['text'])
                     word_statistics['pure_pred_list'].append(prediction)
                 except:
