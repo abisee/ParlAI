@@ -176,8 +176,10 @@ def eval_model(opt, printargs=None, print_parser=None):
 
     # Show some example dialogs:
     cnt = 0
-    num_clusters = 200
-    clusters_to_report = random.sample(range(num_clusters), 10)
+
+    # num_clusters = 200
+    # clusters_to_report = random.sample(range(num_clusters), 10)
+
     while not world.epoch_done():
         cnt += opt.get('batchsize', 1)
 
@@ -195,8 +197,21 @@ def eval_model(opt, printargs=None, print_parser=None):
         print("target: %s" % act_0['eval_labels'][0])
         print("")
 
+        # run the generation module forward so we can get cluster_ranking
+        world.agents[1].observe(validate(act_0))
+        act_1 = world.agents[1].act()
+
+        ranking = world.agents[1].cluster_ranking # shape (1, k), containing ints
+        assert ranking.size(0)==1
+        ranking = ranking.squeeze(0).tolist() # len k
+
+        clusters_to_report = ranking[:10]
+
+        print("Top clusters predicted by starspace model:")
+        print("")
         for cluster_id in clusters_to_report:
             act_0['target_clusterid'] = cluster_id # edit the cluster in act_0
+            act_0['dont_override_target_clusterid'] = True # tell the model not to override with the starspace top choice clusterid
             world.agents[1].observe(validate(act_0))
             act_1 = world.agents[1].act() # generate
 
