@@ -57,7 +57,6 @@ def dump_data(opt):
     persona2cluster, _ = read_clusterfile(persona_cluster_fname)
 
     num_clusters = 200
-    cluster_cands = [str(i) for i in range(num_clusters)]
 
     # create repeat label agent and assign it to the specified task
     agent = RepeatLabelAgent(opt)
@@ -93,10 +92,7 @@ def dump_data(opt):
             label = label[0] # str
 
             target_clusterid = text2cluster[label]
-            msg['labels'] = [str(target_clusterid)]
-
-            msg['label_candidates'] = cluster_cands
-
+            msg['target_clusterid'] = target_clusterid
             msg['persona_clusterids'] = [persona2cluster[l] for l in episode_persona]
             msg['dialog_hist_clusterids'] = [text2cluster[l] for l in dialog_history]
 
