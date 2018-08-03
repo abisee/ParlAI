@@ -99,11 +99,10 @@ def eval_model(opt, printargs=None, print_parser=None):
         for w in world.worlds:
             try:
                 target_clusterid = int(w.acts[0]['target_clusterid'])
-                pred_clusterid = w.acts[1]['text'] # text
+                pred_clusterid = w.acts[1]['pred_clusterid'] # text
             except KeyError:
                 continue
-            assert pred_clusterid[:8]=="cluster "
-            pred_clusterid = int(pred_clusterid[8:])
+            pred_clusterid = int(pred_clusterid)
             predicted_clusterids.append(pred_clusterid)
             target_clusterids.append(target_clusterid)
 
