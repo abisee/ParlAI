@@ -188,20 +188,26 @@ def eval_model(opt, printargs=None, print_parser=None):
                 print("input: %s" % line)
         print("")
         target_clusterid = int(world.acts[0]['target_clusterid'])
-        print("target cluster %i (%s)" % (target_clusterid, show_cluster_keywords(clusterid2tfidfs, target_clusterid, num_samples=10)))
+        target_str = "target cluster %i (%s)" % (target_clusterid, show_cluster_keywords(clusterid2tfidfs, target_clusterid, num_samples=10))
+        print(target_str)
         print("target:      %s" % world.acts[0]['eval_labels'][0])
 
-        pred_clusterid = world.acts[1]['text'] # text
-        assert pred_clusterid[:8]=="cluster "
-        pred_clusterid = int(pred_clusterid[8:])
-        print("predicted cluster %i (%s)" % (pred_clusterid, show_cluster_keywords(clusterid2tfidfs, pred_clusterid, num_samples=10)))
+        pred_clusterid = world.acts[1]['pred_clusterid'] # int
+        pred_str = "predicted cluster %i (%s)" % (pred_clusterid, show_cluster_keywords(clusterid2tfidfs, pred_clusterid, num_samples=10))
+        print(pred_str)
 
-        top_clusters = [int(i) for i in world.acts[1]['class_ranking'].split(',')] # list of ints
+        top_clusters = world.acts[1]['class_ranking'] # list of ints
         num_clusters = len(top_clusters)
         print("top clusters: ", ", ".join(["%i (%s)" % (i, show_cluster_keywords(clusterid2tfidfs, i, num_samples=3)) for i in top_clusters[:10]]))
 
         gold_cluster_rank = top_clusters.index(target_clusterid)+1 # int in range [1,num_clusters]
         print("target cluster rank: %i/%i" % (gold_cluster_rank, num_clusters))
+
+        # write attnvis to file
+        if opt.get('attn_vis'):
+            world.agents[1].model.attn_vis.add_target([target_str])
+            world.agents[1].model.attn_vis.output_tokens = [pred_str]
+            world.agents[1].model.attn_vis.write()
 
         print("")
         if world.acts[0].get('episode_done', False):
