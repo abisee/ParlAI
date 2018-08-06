@@ -24,6 +24,10 @@ from parlai.scripts.tfidf import get_tfidfs_wrtclusters, get_tfidfs_wrtsents
 import random
 import os
 
+import nltk
+from nltk.corpus import stopwords
+stopwords = set(stopwords.words('english'))
+
 
 def show_cluster_examples(clusterid2lst, clusterid, num_samples=5):
     """Returns a list of strings"""
@@ -32,10 +36,16 @@ def show_cluster_examples(clusterid2lst, clusterid, num_samples=5):
     return random.sample(examples, num_samples)
 
 
-def show_cluster_keywords(cluster2tfidfs, clusterid, num_samples=10):
-    # returns string
-    return ", ".join([word for word,_ in cluster2tfidfs[clusterid].most_common(num_samples)])
-
+def show_cluster_keywords(cluster2tfidfs, clusterid, num_samples=10, remove_stopwords=False):
+    """Returns string"""
+    keywords = []
+    for word,_ in cluster2tfidfs[clusterid].most_common():
+        if remove_stopwords and word in stopwords:
+            continue
+        keywords.append(word)
+        if len(keywords)==num_samples:
+            break
+    return ", ".join(keywords)
 
 
 def setup_args(parser=None):
