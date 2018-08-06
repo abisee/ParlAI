@@ -197,6 +197,12 @@ def eval_model(opt, printargs=None, print_parser=None):
             print("==========")
             print("")
 
+        if opt.get('attn_vis'):
+            label = world.acts[0]['eval_labels'][0]
+            tgt_to_write = "%s<br>target clusterid %i (%s)" % (label, target_clusterid, show_cluster_keywords(clusterid2tfidfs, target_clusterid, num_samples=10))
+            world.agents[1].model.attn_vis.add_target([tgt_to_write])
+            world.agents[1].model.attn_vis.write()
+
         if opt['num_examples'] > 0 and cnt >= opt['num_examples']:
             break
 
