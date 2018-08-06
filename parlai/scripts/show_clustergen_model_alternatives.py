@@ -19,100 +19,11 @@ from parlai.core.utils import TimeLogger
 
 import parlai.scripts.interactive as interactive
 from parlai.scripts.make_cluster_datasets import read_clusterfile
-
-from collections import Counter
+from parlai.scripts.tfidf import get_tfidfs_wrtclusters, get_tfidfs_wrtsents
+from parlai.show_clustergen_model import show_cluster_examples, show_cluster_keywords
 
 import random
-import math
 import os
-
-def tokenize(str):
-    return str.split(' ')
-
-def get_idf(word, clusterid2hashmap, num_clusters):
-    num_clusters_containing_w = len([1 for hashmap in clusterid2hashmap.values() if word in hashmap])
-    return math.log(num_clusters / num_clusters_containing_w)
-
-
-def get_tfidfs(clusterid2lst):
-
-    num_clusters = len(clusterid2lst)
-
-    clusterid2multiset = {clusterid:sorted([w for sent in lst for w in tokenize(sent)]) for clusterid, lst in clusterid2lst.items()} # int to sorted list of words incl repetition
-
-    clusterid2set = {clusterid:sorted(list(set(lst))) for clusterid, lst in clusterid2multiset.items()} # int to sorted list with no repetition
-
-    all_words = [w for set in clusterid2set.values() for w in set]
-    all_words = sorted(list(set(all_words)))
-
-    clusterid2hashmap = {clusterid:{w:True for w in lst} for clusterid,lst in clusterid2set.items()} # int to a dict which maps word to True
-
-    # calculate idf for every word in all_words
-    print("calculating idf for all words...")
-    word2idf = Counter({word: get_idf(word, clusterid2hashmap, num_clusters) for word in all_words})
-
-    # for each cluster, calculate tfidf for every word in the cluster
-    print("calculating tfidfs for each cluster...")
-    clusterid2tfidfs = {} # int to Counter mapping word to tfidf
-    for clusterid, set_lst in clusterid2set.items():
-        # print("clusterid %i of %i" % (clusterid, num_clusters))
-        word2tfidf = Counter()
-        multiset = clusterid2multiset[clusterid]
-        num_words_in_cluster = len(multiset)
-
-
-        # === SLOW VERSION ===
-        # for word in set_lst:
-        #     tf = len([1 for w in multiset if w==word]) / num_words_in_cluster
-        #     tfidf = tf * word2idf[word]
-        #     word2tfidf[word] = tfidf
-        # ====================
-
-
-        # === FAST VERSION ===
-
-        setpointer = 0
-        multisetpointer = 0
-
-        while setpointer < len(set_lst):
-            word = set_lst[setpointer]
-            assert multiset[multisetpointer] == word
-            old_multisetpointer = multisetpointer
-
-            while multiset[multisetpointer] == word:
-                multisetpointer += 1
-                if multisetpointer == len(multiset):
-                    assert setpointer == len(set_lst)-1
-                    break
-
-            num_occ = multisetpointer - old_multisetpointer
-
-            tf = num_occ / num_words_in_cluster
-
-            tfidf = tf * word2idf[word]
-            word2tfidf[word] = tfidf
-
-            setpointer += 1
-
-        # ====================
-
-        clusterid2tfidfs[clusterid] = word2tfidf
-
-    return clusterid2tfidfs
-
-
-def show_cluster_examples(clusterid2lst, clusterid, num_samples=5):
-    examples = clusterid2lst[clusterid]
-    num_samples = min(num_samples, len(examples))
-    print("CLUSTER %i:" % clusterid)
-    for text in random.sample(examples, num_samples):
-        print(text)
-
-
-def show_cluster_keywords(cluster2tfidfs, clusterid, num_samples=10):
-    # returns string
-    return ", ".join([word for word,_ in cluster2tfidfs[clusterid].most_common(num_samples)])
-
 
 
 def setup_args(parser=None):
@@ -158,7 +69,7 @@ def eval_model(opt, printargs=None, print_parser=None):
     text2clusterid, clusterid2lst = read_clusterfile(cluster_fname)
 
     print("getting tfidfs...")
-    clusterid2tfidfs = get_tfidfs(clusterid2lst)
+    clusterid2tfidfs = get_tfidfs_wrtclusters(clusterid2lst)
     print("done")
 
     # Create model and assign it to the specified task
