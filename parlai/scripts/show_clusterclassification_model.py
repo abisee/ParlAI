@@ -20,7 +20,7 @@ from parlai.core.utils import TimeLogger
 import parlai.scripts.interactive as interactive
 from parlai.scripts.make_cluster_datasets import read_clusterfile
 from parlai.scripts.tfidf import get_tfidfs_wrtclusters, get_tfidfs_wrtsents
-from parlai.show_clustergen_model import show_cluster_examples, show_cluster_keywords
+from parlai.scripts.show_clustergen_model import show_cluster_examples, show_cluster_keywords
 
 import random
 import os
