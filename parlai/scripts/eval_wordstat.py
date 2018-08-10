@@ -34,6 +34,10 @@ from parlai.core.metrics import normalize_answer
 from parlai.core.logs import TensorboardLogger
 from collections import Counter
 
+from parlai_internal.projects.nlg_plan.cluster_classifier import load_model, embed_sentences, load_centroids_directly, compute_metrics
+from parlai_internal.projects.nlg_plan.eval_starspace_classifier import classify
+
+import torch
 import copy
 import numpy
 import random
@@ -129,6 +133,9 @@ def eval_wordstat(opt, print_parser=None):
         word_statistics['freqs_cnt'] += Counter(freqs)
         return word_statistics
 
+    generated = [] # list of strings
+    used_clusterids = [] # list of ints
+
     while not world.epoch_done():
         world.parley()
         if batch_size == 1:
@@ -154,6 +161,10 @@ def eval_wordstat(opt, print_parser=None):
                     continue
                 cnt += 1
                 word_statistics = process_prediction(prediction, word_statistics)
+
+                if 'used_clusterid' in w.acts[-1]:
+                    generated.append(prediction)
+                    used_clusterids.append(w.acts[-1]['used_clusterid'])
 
         if log_time.time() > log_every_n_secs:
             report = world.report()
@@ -195,6 +206,15 @@ def eval_wordstat(opt, print_parser=None):
 
     report = world.report()
     print(report)
+
+    # Compute faithfulness
+    if len(used_clusterids) > 0:
+        starspace_model = load_model()
+        cluster_centers = torch.Tensor(load_centroids_directly())
+        scores, ranking = classify(generated, starspace_model, "output", cluster_centers, "euclidean") # scores and ranking both shape (num_exs, num_classes)
+        hits_at_n, mrr = compute_metrics(scores, used_clusterids)
+        print("Faithfulness stats from %i examples:" % len(generated))
+        print(", ".join(["hits_at/%i: %.2f%%" % (n, perc) for n, perc in hits_at_n.items()]) + ", " + "mrr: %4f"%mrr)
 
     # write results to file
     outfile = "%s.%s.%s" % (opt.get('model_file'), opt.get('datatype'), "wordstats")
