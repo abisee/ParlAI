@@ -123,6 +123,9 @@ def eval_model(opt, printargs=None, print_parser=None):
         target_clusterid = int(world.acts[0]['target_clusterid'])
         print("target cluster %i (%s)" % (target_clusterid, show_cluster_keywords(clusterid2tfidfs, target_clusterid, num_samples=10)))
         print("target:      %s" % world.acts[0]['eval_labels'][0])
+        if opt.get('classifier_model_file'):
+            used_clusterid = world.acts[1]['used_clusterid']
+            print("classifier predicted cluster %i (%s)" % (used_clusterid, show_cluster_keywords(clusterid2tfidfs, used_clusterid, num_samples=10)))
         print("generated:   %s" % world.acts[1]['text'])
 
         print("")
