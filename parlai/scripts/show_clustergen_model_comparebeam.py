@@ -139,7 +139,8 @@ def eval_model(opt, printargs=None, print_parser=None):
             fprint(f, "")
             target_clusterid = int(act_0['target_clusterid'])
             fprint(f, "target cluster %02i (%s)" % (target_clusterid, show_cluster_keywords(clusterid2tfidfs, target_clusterid, num_samples=10)))
-            fprint(f, "target:      %s" % act_0['eval_labels'][0])
+
+        fprint(f, "target: %s" % act_0['eval_labels'][0])
 
         for beam_size in beam_sizes:
             world.agents[1].observe(validate(act_0))
