@@ -142,8 +142,8 @@ def eval_model(opt, printargs=None, print_parser=None):
 
         fprint(f, "target: %s" % act_0['eval_labels'][0])
 
+        world.agents[1].observe(validate(act_0)) # observe just once
         for beam_size in beam_sizes:
-            world.agents[1].observe(validate(act_0))
             world.agents[1].beam_size = beam_size
             act_1 = world.agents[1].act() # generate
 
