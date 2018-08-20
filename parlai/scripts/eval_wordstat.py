@@ -144,6 +144,10 @@ def eval_wordstat(opt, print_parser=None):
     closeness_metrics_eucl = init_closeness_metrics()
     closeness_metrics_cos = init_closeness_metrics()
 
+    # init distinctness metrics
+    distinct_n = [1, 2, 3, 4]
+    ngram_counters = {n:Counter() for n in distinct_n}
+
     while not world.epoch_done():
         world.parley()
         if batch_size == 1:
@@ -172,11 +176,19 @@ def eval_wordstat(opt, print_parser=None):
                 label = w.acts[0]['eval_labels'][0]
                 w.agents[1].dialoghist_convo.append(label)
 
+                # Update distinct-n metrics
+                pred_words = prediction.split()
+                for n in distinct_n:
+                    pred_ngrams = [" ".join(pred_words[i:i+n]) for i in range(len(pred_words)-n+1)] # n-grams in prediction
+                    ngram_counters[n].update(pred_ngrams)
+
+                # Update wordstats
                 word_statistics['context_list'].append(w.acts[0]['text'])
                 word_statistics['pure_pred_list'].append(prediction)
                 cnt += 1
                 word_statistics = process_prediction(prediction, word_statistics)
 
+                # For clustercond models, record generated text and the clusterid used
                 if 'used_clusterid' in w.acts[-1]:
                     generated.append(prediction)
                     used_clusterids.append(w.acts[-1]['used_clusterid'])
@@ -221,6 +233,15 @@ def eval_wordstat(opt, print_parser=None):
 
     report = world.report()
     print(report)
+
+    # Show distinct-n metrics
+    num_unigrams = sum(ngram_counters[1].values())
+    print("\nDiversity metrics: ", end='')
+    print(", ".join([
+        "distinct-%i: %.4f (%i/%i)" % (n, len(ngram_counter)/num_unigrams, len(ngram_counter), num_unigrams)
+        for n, ngram_counter in ngram_counters.items()
+        ]))
+    print("")
 
     # Show closeness metrics
     show_closeness_metrics(closeness_metrics_eucl)
