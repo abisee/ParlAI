@@ -33,6 +33,7 @@ from parlai.core.utils import TimeLogger
 from parlai.core.metrics import normalize_answer
 from parlai.core.logs import TensorboardLogger
 from collections import Counter
+from parlai.scripts.closeness_metrics import init_closeness_metrics, update_closeness_metrics, show_closeness_metrics, add_to_dialoghist
 
 from parlai_internal.projects.nlg_plan.cluster_classifier import load_model, embed_sentences, load_centroids_directly, compute_metrics
 from parlai_internal.projects.nlg_plan.eval_starspace_classifier import classify
@@ -58,7 +59,8 @@ def setup_args(parser=None):
                         help='Dump predictions into file')
     parser.add_argument('-cun', '--compute-unique', type=bool, default=True,
                         help='Compute % of unique responses from the model')
-    parser.set_defaults(datatype='valid', model='repeat_label')
+    # parser.set_defaults(datatype='valid', model='repeat_label')
+    parser.set_defaults(datatype='valid')
     TensorboardLogger.add_cmdline_args(parser)
     return parser
 
@@ -136,6 +138,12 @@ def eval_wordstat(opt, print_parser=None):
     generated = [] # list of strings
     used_clusterids = [] # list of ints
 
+    starspace_model = load_model()
+
+    # init closeness metrics
+    closeness_metrics_eucl = init_closeness_metrics()
+    closeness_metrics_cos = init_closeness_metrics()
+
     while not world.epoch_done():
         world.parley()
         if batch_size == 1:
@@ -154,11 +162,18 @@ def eval_wordstat(opt, print_parser=None):
                     # assert len(prediction)==1
                     # prediction = prediction[0]
                     # =======================================
-
-                    word_statistics['context_list'].append(w.acts[0]['text'])
-                    word_statistics['pure_pred_list'].append(prediction)
-                except:
+                except KeyError:
                     continue
+
+                # Update closeness metrics
+                add_to_dialoghist(w.agents[1], w.acts[0])
+                closeness_metrics_eucl, choice_eucl = update_closeness_metrics(prediction, w.agents[1], closeness_metrics_eucl, starspace_model, dist_metric="eucl")
+                closeness_metrics_cos, choice_cos = update_closeness_metrics(prediction, w.agents[1], closeness_metrics_cos, starspace_model, dist_metric="cosine")
+                label = w.acts[0]['eval_labels'][0]
+                w.agents[1].dialoghist_convo.append(label)
+
+                word_statistics['context_list'].append(w.acts[0]['text'])
+                word_statistics['pure_pred_list'].append(prediction)
                 cnt += 1
                 word_statistics = process_prediction(prediction, word_statistics)
 
@@ -206,6 +221,10 @@ def eval_wordstat(opt, print_parser=None):
 
     report = world.report()
     print(report)
+
+    # Show closeness metrics
+    show_closeness_metrics(closeness_metrics_eucl)
+    show_closeness_metrics(closeness_metrics_cos)
 
     # Compute faithfulness
     if len(used_clusterids) > 0:
