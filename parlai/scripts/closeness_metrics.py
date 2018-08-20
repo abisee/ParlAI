@@ -4,10 +4,8 @@ from parlai_internal.projects.nlg_plan.cluster_classifier import embed_sentences
 
 def init_closeness_metrics():
     closeness_metrics = {
-        "avg_persona_dist": 0.0,
         "min_persona_dist": 0.0,
         "last_utt_dist": 0.0,
-        "avg_hist_dist": 0.0,
         "min_hist_dist": 0.0,
         "num_exs": 0.0,
         "persona_count": 0,
@@ -27,11 +25,11 @@ def add_to_dialoghist(agent_1, act_0):
     agent_1.dialoghist_convo.append(last_utt)
 
 
-def update_closeness_metrics(prediction, agent_1, closeness_metrics, starspace_model, dist_metric="eucl"):
+def calc_closeness(prediction, persona, convo, starspace_model, dist_metric="eucl"):
     # Compute dist between prediction and each thing in dialoghist_persona and dialoghist_convo
     pred_emb = torch.Tensor(embed_sentences([prediction], starspace_model, type="output"))
-    persona_emb = torch.Tensor(embed_sentences(agent_1.dialoghist_persona, starspace_model, type="output"))
-    hist_emb = torch.Tensor(embed_sentences(agent_1.dialoghist_convo, starspace_model, type="output"))
+    persona_emb = torch.Tensor(embed_sentences(persona, starspace_model, type="output"))
+    hist_emb = torch.Tensor(embed_sentences(convo, starspace_model, type="output"))
 
     if dist_metric=="eucl":
         persona_dists = torch.nn.functional.pairwise_distance(pred_emb, persona_emb) # shape (persona_len)
@@ -49,34 +47,23 @@ def update_closeness_metrics(prediction, agent_1, closeness_metrics, starspace_m
     else:
         raise Exception()
 
-    avg_persona_dist = torch.mean(persona_dists).item() # float
     min_persona_dist = torch.min(persona_dists).item()
-    avg_hist_dist = torch.mean(hist_dists).item()
     min_hist_dist = torch.min(hist_dists).item()
     last_utt_dist = hist_dists[-1].item()
 
-    closeness_metrics['avg_persona_dist'] += avg_persona_dist
-    closeness_metrics['min_persona_dist'] += min_persona_dist
-    closeness_metrics['last_utt_dist'] += last_utt_dist
-    closeness_metrics['avg_hist_dist'] += avg_hist_dist
-    closeness_metrics['min_hist_dist'] += min_hist_dist
-    closeness_metrics['num_exs'] += 1
+    if min_persona_dist < min_hist_dist:
+        choice = "persona"
+    elif last_utt_dist == min_hist_dist:
+        assert last_utt_dist < min_persona_dist
+        choice = "last_utt"
+    else:
+        assert min_hist_dist < min(last_utt_dist, min_persona_dist)
+        choice = "other_hist"
 
     # print("")
     # print(dist_metric)
     # least = min(min_persona_dist, min_hist_dist)
 
-    if min_persona_dist < min_hist_dist:
-        closeness_metrics['persona_count'] += 1
-        choice = "PERSONA"
-    elif last_utt_dist == min_hist_dist:
-        assert last_utt_dist < min_persona_dist
-        closeness_metrics['last_utt_count'] += 1
-        choice = "LAST UTT"
-    else:
-        assert min_hist_dist < min(last_utt_dist, min_persona_dist)
-        closeness_metrics['other_hist_count'] += 1
-        choice = "OTHER"
     # print(choice)
 
     # for (l,d) in zip(agent_1.dialoghist_persona, persona_dists):
@@ -90,6 +77,18 @@ def update_closeness_metrics(prediction, agent_1, closeness_metrics, starspace_m
 
     # import pdb; pdb.set_trace()
 
+    return choice, min_persona_dist, min_hist_dist, last_utt_dist
+
+
+def update_closeness_metrics(prediction, agent_1, closeness_metrics, starspace_model, dist_metric="eucl"):
+    choice, min_persona_dist, min_hist_dist, last_utt_dist = calc_closeness(prediction, agent_1.dialoghist_persona, agent_1.dialoghist_convo, starspace_model, dist_metric=dist_metric)
+
+    closeness_metrics['min_persona_dist'] += min_persona_dist
+    closeness_metrics['last_utt_dist'] += last_utt_dist
+    closeness_metrics['min_hist_dist'] += min_hist_dist
+    closeness_metrics[choice+"_count"] += 1
+    closeness_metrics['num_exs'] += 1
+
     return closeness_metrics, choice
 
 
@@ -97,7 +96,6 @@ def show_closeness_metrics(closeness_metrics):
     num_exs = closeness_metrics['num_exs']
     closeness_metrics = {k:v/num_exs for k,v in closeness_metrics.items() if k!="num_exs"}
     print("Closeness stats from %i examples:" % (num_exs))
-    print("Average dist: %.4f persona / %.4f dialog hist (%.4f last utt)" % (closeness_metrics['avg_persona_dist'], closeness_metrics['avg_hist_dist'], closeness_metrics['last_utt_dist']))
-    print("Min dist: %.4f persona / %.4f dialog hist" % (closeness_metrics['min_persona_dist'], closeness_metrics['min_hist_dist']))
+    print("avg last utt dist: %.4f, avg min persona dist: %.4f, avg min dialog dist: %.4f" % (closeness_metrics['last_utt_dist'], closeness_metrics['min_persona_dist'], closeness_metrics['min_hist_dist']))
     print("Counts: %.2f%% persona / %.2f%% last / %.2f%% other dialoghist" % (closeness_metrics['persona_count']*100, closeness_metrics['last_utt_count']*100, closeness_metrics['other_hist_count']*100))
     print("")
