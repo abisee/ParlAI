@@ -16,7 +16,7 @@ def init_closeness_metrics():
 
 def add_to_dialoghist(agent_1, act_0):
     input_text = act_0['text'].split('\n')
-    persona_lines = [line for line in input_text if "your persona: "==line[:14]]
+    persona_lines = [line[14:] for line in input_text if "your persona: "==line[:14]]
     if len(persona_lines)>0:
         assert len(persona_lines) == len(input_text)-1
         agent_1.dialoghist_persona = persona_lines
@@ -26,6 +26,10 @@ def add_to_dialoghist(agent_1, act_0):
 
 
 def calc_closeness(prediction, persona, convo, starspace_model, dist_metric="eucl"):
+    # print("prediction: ", prediction)
+    # print("persona: ", persona)
+    # print("convo: ", convo)
+
     # Compute dist between prediction and each thing in dialoghist_persona and dialoghist_convo
     pred_emb = torch.Tensor(embed_sentences([prediction], starspace_model, type="output"))
     persona_emb = torch.Tensor(embed_sentences(persona, starspace_model, type="output"))
@@ -51,7 +55,7 @@ def calc_closeness(prediction, persona, convo, starspace_model, dist_metric="euc
     min_hist_dist = torch.min(hist_dists).item()
     last_utt_dist = hist_dists[-1].item()
 
-    if min_persona_dist < min_hist_dist:
+    if min_persona_dist <= min_hist_dist:
         choice = "persona"
     elif last_utt_dist == min_hist_dist:
         assert last_utt_dist < min_persona_dist
