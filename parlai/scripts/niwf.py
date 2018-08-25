@@ -174,7 +174,8 @@ def get_niwf_buckets(opt, sent2niwf, num_buckets=2):
     sent2niwf_pairs = sorted(sent2niwf_pairs, key=lambda x: x[1])
     num_sents = len(sent2niwf_pairs)
     bucket_boundaries = [] # lower niwf boundary for each bucket
-    for cnt in range(0, num_sents, int(num_sents/num_buckets)):
+    bucket_boundaries_int = [int(i*num_sents/num_buckets) for i in range(num_buckets)]
+    for cnt in bucket_boundaries_int:
         (sent, niwf) = sent2niwf_pairs[cnt]
         bucket_boundaries.append(niwf)
         print("(%i/%i): niwf=%.3f, sent=%s" % (cnt, num_sents, niwf, sent))
