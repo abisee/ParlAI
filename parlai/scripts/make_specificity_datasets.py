@@ -12,45 +12,10 @@ from parlai.core.params import ParlaiParser
 from parlai.agents.repeat_label.repeat_label import RepeatLabelAgent
 from parlai.core.worlds import create_task
 from parlai.core.utils import msg_to_str
-from parlai.scripts.niwf import learn_niwf, get_niwf_buckets, train_opts, valid_opts, niwf_to_clusterid, load_niwf
+from parlai.scripts.niwf import learn_niwf, get_niwf_buckets, train_opts, valid_opts, niwf_to_clusterid, load_niwf_dict
+import pickle
 
 import random
-
-# def separate_text(text):
-#     lines = text.split('\n')
-#     persona_lines, last_utterance = [], []
-#     for line in lines:
-#         if "your persona: " == line[:14]:
-#             persona_lines.append(line[14:])
-#         else:
-#             last_utterance.append(line)
-#     assert len(last_utterance)==1
-#     return persona_lines, last_utterance[0]
-#
-#
-# def read_clusterfile(cluster_fname, with_dups=False):
-#     """
-#     if with_dups is True, then clusterid2lst contains duplicates.
-#     text2cluster never contains duplicates.
-#     """
-#     text2cluster = {}
-#     clusterid2lst = {}
-#     with open(cluster_fname, 'r') as f:
-#         for line in f:
-#             line = line.strip()
-#             cluster_id = line.split(' ')[0] # string
-#             text = line[len(cluster_id)+1:]
-#             cluster_id = int(cluster_id)
-#             text2cluster[text] = cluster_id
-#
-#             if cluster_id not in clusterid2lst:
-#                 clusterid2lst[cluster_id] = []
-#
-#             if with_dups or (not with_dups and text not in clusterid2lst[cluster_id]):
-#                 clusterid2lst[cluster_id].append(text)
-#
-#     return text2cluster, clusterid2lst
-
 
 
 def dump_data(opt, sent2niwf, bucket_boundaries):
@@ -69,6 +34,17 @@ def dump_data(opt, sent2niwf, bucket_boundaries):
         reply = msg.get('labels', world.acts[0].get('eval_labels'))[0] # string
         reply_niwf = sent2niwf[reply] # float
 
+        # ====================================
+        # run this to check that our niwf calculations match what's written in the datafile
+        # ====================================
+        # try:
+        #     assert float(msg['target_niwf']) == reply_niwf
+        #     assert int(msg['target_clusterid']) == niwf_to_clusterid(reply_niwf, bucket_boundaries)
+        # except:
+        #     print("assertion error")
+        #     import pdb; pdb.set_trace()
+        # ====================================
+
         msg['target_niwf'] = reply_niwf
         msg['target_clusterid'] = niwf_to_clusterid(reply_niwf, bucket_boundaries)
 
@@ -85,20 +61,26 @@ def dump_data(opt, sent2niwf, bucket_boundaries):
 
 def main():
     random.seed(42)
-    # Get command line arguments
-    parser = ParlaiParser()
-    opt = parser.parse_args()
-    opt['task'] = 'fromfile:parlaiformat'
 
-    # sent2niwf = learn_niwf(opt)
-    sent2niwf = load_niwf(opt)
+    # Load or learn NIWF dict
+    # sent2niwf, _ = learn_niwf()
+    sent2niwf = load_niwf_dict()
 
     for num_buckets in [2,3,4,5,10]:
-        bucket_boundaries = get_niwf_buckets(opt, sent2niwf, num_buckets)
+        # get bucket boundaries and write to file
+        bucket_boundaries = get_niwf_buckets(sent2niwf, num_buckets)
+        bucket_outfile = '/private/home/abisee/ParlAI/data/ConvAI2_specificity/%ibucket_boundaries.txt' % (num_buckets)
+        with open(bucket_outfile, "wb") as f:
+            pickle.dump(bucket_boundaries, f)
 
-        opt = train_opts(opt, num_buckets)
+        # write train file
+        opt = train_opts(num_buckets)
+        opt['outfile'] = '/private/home/abisee/ParlAI/data/ConvAI2_specificity/train_self_original_classification_%ibuckets.txt' % (num_buckets)
         dump_data(opt, sent2niwf, bucket_boundaries)
-        opt = valid_opts(opt, num_buckets)
+
+        # write valid file
+        opt = valid_opts(num_buckets)
+        opt['outfile'] = '/private/home/abisee/ParlAI/data/ConvAI2_specificity/valid_self_original_classification_%ibuckets.txt' % (num_buckets)
         dump_data(opt, sent2niwf, bucket_boundaries)
 
 
