@@ -54,10 +54,16 @@ def get_word_counts(opt):
 
 
 def get_iwf(sent, word2iwf):
+    """Returns:
+        iwf: iwf of sentence, using all words that are in the dictionary
+        problem_words: words in the sentence that aren't in the dictionary
+    """
     words = sent.split()
     words = list(set(words))
-    iwf = max([word2iwf[w] for w in words]) # iwf for the sent
-    return iwf
+    problem_words = [w for w in words if w not in word2iwf]
+    ok_words = [w for w in words if w in word2iwf]
+    iwf = max([word2iwf[w] for w in ok_words])
+    return iwf, problem_words
 
 
 def learn_niwf():
@@ -84,7 +90,11 @@ def learn_niwf():
 
     # Compute IWF for every sentence in train + val
     print("Computing IWF for all sentences in train and val sets...")
-    sent2iwf = {sent: get_iwf(sent, word2iwf) for sent in sents}
+    sent2iwf = {}
+    for sent in sents:
+        iwf, problem_words = get_iwf(sent, word2iwf)
+        assert len(problem_words)==0
+        sent2iwf[sent] = iwf
 
     # Get min and max sent iwf
     min_iwf = min(sent2iwf.values())
@@ -107,9 +117,9 @@ def learn_niwf():
 
     # This fn uses word2iwf, min_iwf, max_iwf
     def sent2niwf_fn(sent):
-        sent_iwf = get_iwf(sent, word2iwf)
+        sent_iwf, problem_words = get_iwf(sent, word2iwf)
         sent_niwf = get_niwf(sent_iwf, min_iwf, max_iwf)
-        return sent_niwf
+        return sent_niwf, problem_words
 
     return sent2niwf_dict, sent2niwf_fn
 
@@ -152,9 +162,9 @@ def load_niwf_fn():
 
     # This fn uses word2iwf, min_iwf, max_iwf
     def sent2niwf_fn(sent):
-        sent_iwf = get_iwf(sent, word2iwf)
+        sent_iwf, problem_words = get_iwf(sent, word2iwf)
         sent_niwf = get_niwf(sent_iwf, min_iwf, max_iwf)
-        return sent_niwf
+        return sent_niwf, problem_words
 
     return sent2niwf_fn
 

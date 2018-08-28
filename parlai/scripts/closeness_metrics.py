@@ -99,7 +99,8 @@ def update_closeness_metrics(prediction, agent_1, closeness_metrics, starspace_m
 def show_closeness_metrics(closeness_metrics):
     num_exs = closeness_metrics['num_exs']
     closeness_metrics = {k:v/num_exs for k,v in closeness_metrics.items() if k!="num_exs"}
-    print("Closeness stats from %i examples:" % (num_exs))
-    print("avg last utt dist: %.4f, avg min persona dist: %.4f, avg min dialog dist: %.4f" % (closeness_metrics['last_utt_dist'], closeness_metrics['min_persona_dist'], closeness_metrics['min_hist_dist']))
-    print("Counts: %.2f%% persona / %.2f%% last / %.2f%% other dialoghist" % (closeness_metrics['persona_count']*100, closeness_metrics['last_utt_count']*100, closeness_metrics['other_hist_count']*100))
-    print("")
+    stat_str = ""
+    stat_str += "Closeness stats from %i examples:\n" % (num_exs)
+    stat_str += "avg last utt dist: %.4f, avg min persona dist: %.4f, avg min dialog dist: %.4f\n" % (closeness_metrics['last_utt_dist'], closeness_metrics['min_persona_dist'], closeness_metrics['min_hist_dist'])
+    stat_str += "Counts: %.2f%% persona / %.2f%% last / %.2f%% other dialoghist" % (closeness_metrics['persona_count']*100, closeness_metrics['last_utt_count']*100, closeness_metrics['other_hist_count']*100)
+    return stat_str

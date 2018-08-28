@@ -34,6 +34,7 @@ from parlai.core.metrics import normalize_answer
 from parlai.core.logs import TensorboardLogger
 from collections import Counter
 from parlai.scripts.closeness_metrics import init_closeness_metrics, update_closeness_metrics, show_closeness_metrics, add_to_dialoghist
+from parlai.scripts.niwf import load_niwf_buckets, load_niwf_fn, niwf_to_clusterid
 
 from parlai_internal.projects.nlg_plan.cluster_classifier import load_model, embed_sentences, load_centroids_directly, compute_metrics
 from parlai_internal.projects.nlg_plan.eval_starspace_classifier import classify
@@ -59,11 +60,16 @@ def setup_args(parser=None):
                         help='Dump predictions into file')
     parser.add_argument('-cun', '--compute-unique', type=bool, default=True,
                         help='Compute % of unique responses from the model')
+    parser.add_argument('--eval-gold', type=bool, default=False,
+                        help='Just evaluate gold responses')
     # parser.set_defaults(datatype='valid', model='repeat_label')
     parser.set_defaults(datatype='valid')
     TensorboardLogger.add_cmdline_args(parser)
     return parser
 
+def fprint(outfile, txt, end='\n'):
+    print(txt, end=end)
+    outfile.write(txt + end)
 
 def get_word_stats(text, agent_dict, bins=[0, 100, 1000, 100000]):
     """
@@ -73,6 +79,7 @@ def get_word_stats(text, agent_dict, bins=[0, 100, 1000, 100000]):
     :param bins: list with range boundaries
     :return: freqs dictionary, num words, avg word length, avg char length
     """
+    assert bins == sorted(bins) # bins must be increasing
     pred_list = agent_dict.tokenize(text)
     pred_freq = [agent_dict.freq[word] for word in pred_list]
     freqs = {i: 0 for i in bins}
@@ -80,7 +87,7 @@ def get_word_stats(text, agent_dict, bins=[0, 100, 1000, 100000]):
         for b in bins:
             if f <= b:
                 freqs[b] += 1
-                break
+                # break
 
     wlength = len(pred_list)
     clength = len(text)  # including spaces
@@ -122,6 +129,15 @@ def eval_wordstat(opt, print_parser=None):
         log_every_n_secs = float('inf')
     log_time = TimeLogger()
 
+    if opt['eval_gold']:
+        outfile = "/tmp/goldresponse_wordstat"
+    else:
+        outfile = "%s.%s.%s" % (opt.get('model_file'), opt.get('datatype'), "wordstats")
+        if opt['fixed_clusterid'] != -1:
+            outfile += ".fixed_clusterid%i" % (opt['fixed_clusterid'])
+        print("writing to outfile: %s" % outfile)
+    f = open(outfile, "w")
+
     cnt = 0
     word_statistics = {'mean_wlength': [], 'mean_clength': [], 'freqs_cnt': Counter(), 'word_cnt': 0, 'pred_list': [], 'pure_pred_list': [], 'context_list': []}
     bins = [int(i) for i in opt['freq_bins'].split(',')]
@@ -148,9 +164,21 @@ def eval_wordstat(opt, print_parser=None):
     distinct_n = [1, 2, 3, 4]
     ngram_counters = {n:Counter() for n in distinct_n}
 
+    # init niwf metrics
+    niwfs = [] # list of floats
+    sent2niwf_fn = load_niwf_fn()
+    niwf_oov_cnt = 0
+
+    if "specificity" in opt["fromfile_datapath"]:
+        niwf_bucket_lbs = load_niwf_buckets(agent.opt['num_clusters'])
+    else:
+        niwf_bucket_lbs = load_niwf_buckets(10)
+
     while not world.epoch_done():
         world.parley()
+
         if batch_size == 1:
+            raise Exception("some things aren't implemented for batchsize 1")
             cnt += 1
             prediction = world.acts[-1]['text']
             word_statistics['context_list'].append(world.acts[0]['text'])
@@ -159,13 +187,14 @@ def eval_wordstat(opt, print_parser=None):
         else:
             for w in world.worlds:
                 try:
-                    prediction = w.acts[-1]['text']
-
-                    # ===== to measure wordstats on gold responses: ======
-                    # prediction = w.acts[0]['eval_labels']
-                    # assert len(prediction)==1
-                    # prediction = prediction[0]
-                    # =======================================
+                    if opt['eval_gold']:
+                        # ===== to measure wordstats on gold responses: ======
+                        prediction = w.acts[0]['eval_labels']
+                        assert len(prediction)==1
+                        prediction = prediction[0]
+                        # =======================================
+                    else:
+                        prediction = w.acts[-1]['text']
                 except KeyError:
                     continue
 
@@ -188,10 +217,22 @@ def eval_wordstat(opt, print_parser=None):
                 cnt += 1
                 word_statistics = process_prediction(prediction, word_statistics)
 
+                # Record NIWF
+                pred_niwf, problem_words = sent2niwf_fn(prediction)
+                if len(problem_words) > 0:
+                    niwf_oov_cnt += 1
+                niwfs.append(pred_niwf)
+                if 'target_niwf' in w.acts[0]:
+                    label_niwf, label_pw = sent2niwf_fn(label)
+                    assert len(label_pw)==0
+                    assert label_niwf == float(w.acts[0]['target_niwf']) # check sent2niwf_fn matches the labels in the datafile
+                    assert niwf_to_clusterid(label_niwf, niwf_bucket_lbs) == int(w.acts[0]['target_clusterid']) # check bucket matches label in datafile
+
                 # For clustercond models, record generated text and the clusterid used
                 if 'used_clusterid' in w.acts[-1]:
                     generated.append(prediction)
                     used_clusterids.append(w.acts[-1]['used_clusterid'])
+
 
         if log_time.time() > log_every_n_secs:
             report = world.report()
@@ -200,7 +241,7 @@ def eval_wordstat(opt, print_parser=None):
             stat_str = 'total_words: {}, '.format(word_statistics['word_cnt']) + ', '.join(
                 ['<{}:{} ({:.{prec}f}%)'.format(b, word_statistics['freqs_cnt'].get(b, 0), (word_statistics['freqs_cnt'].get(b, 0) / word_statistics['word_cnt']) * 100, prec=2)
                  for b in bins])
-            stat_str = "Word statistics: {}, avg_word_length: {:.{prec}f}, avg_char_length: {:.{prec}f}".format(
+            stat_str = "Word statistics (cumulative rare word counts): {}, avg_word_length: {:.{prec}f}, avg_char_length: {:.{prec}f}".format(
                 stat_str, numpy.array(word_statistics['mean_wlength']).mean(), numpy.array(word_statistics['mean_clength']).mean(), prec=2)
             print(stat_str)
         if opt['num_examples'] > 0 and cnt >= opt['num_examples']:
@@ -215,7 +256,7 @@ def eval_wordstat(opt, print_parser=None):
             if v == 1:
                 unique_list.append(k)
         unique_stat_str = "Unique responses: {:.{prec}f}%".format(len(unique_list) / len(word_statistics['pred_list']) * 100, prec=2)
-        print(unique_stat_str)
+        fprint(f, unique_stat_str)
 
     if opt['dump_predictions_path'] is not None:
         with open(opt['dump_predictions_path'], 'w') as f:
@@ -227,42 +268,59 @@ def eval_wordstat(opt, print_parser=None):
     stat_str = 'total_words: {}, '.format(word_statistics['word_cnt']) + ', '.join(
         ['<{}:{} ({:.{prec}f}%)'.format(b, word_statistics['freqs_cnt'].get(b, 0), (word_statistics['freqs_cnt'].get(b, 0) / word_statistics['word_cnt']) * 100, prec=2)
          for b in bins])
-    stat_str = "Word statistics: {}, avg_word_length: {:.{prec}f}, avg_char_length: {:.{prec}f}".format(
+    stat_str = "Word statistics (cumulative rare word counts): {}, avg_word_length: {:.{prec}f}, avg_char_length: {:.{prec}f}".format(
         stat_str, numpy.array(word_statistics['mean_wlength']).mean(), numpy.array(word_statistics['mean_clength']).mean(), prec=2)
-    print(stat_str)
+    fprint(f, stat_str)
 
     report = world.report()
-    print(report)
+    fprint(f, str(report))
 
     # Show distinct-n metrics
     num_unigrams = sum(ngram_counters[1].values())
-    print("\nDiversity metrics: ", end='')
-    print(", ".join([
+    fprint(f, "\nDiversity metrics: ", end='')
+    fprint(f, ", ".join([
         "distinct-%i: %.4f (%i/%i)" % (n, len(ngram_counter)/num_unigrams, len(ngram_counter), num_unigrams)
         for n, ngram_counter in ngram_counters.items()
         ]))
-    print("")
+    fprint(f, "")
 
-    # Show closeness metrics
-    show_closeness_metrics(closeness_metrics_eucl)
-    show_closeness_metrics(closeness_metrics_cos)
+    # Print niwf metrics
+    avg_niwf = sum(niwfs)/len(niwfs)
+    fprint(f, "Average NIWF over %i examples: %.6f" % (len(niwfs), avg_niwf))
+    fprint(f, "NIWF bucket lowerbounds: %s" % (", ".join(["%.4f" % lb for lb in niwf_bucket_lbs])))
+    pred_niwf_bucketids = [niwf_to_clusterid(niwf, niwf_bucket_lbs) for niwf in niwfs]
+    bucket2count = Counter()
+    bucket2count.update(pred_niwf_bucketids)
+    assert sum(bucket2count.values())==len(niwfs)
+    fprint(f, "Percent generated in each bucket: %s" % (", ".join(["%.2f%% (%i/%i)" % (bucket2count[bucketid]*100/len(niwfs), bucket2count[bucketid], len(niwfs)) for bucketid in sorted(bucket2count.keys())])))
+    fprint(f, "Number of responses containing words that are OOV for PersonaChat (affecting NIWF measure): %i/%i (%.2f%%)\n" % (niwf_oov_cnt, len(niwfs), niwf_oov_cnt*100/len(niwfs)))
 
     # Compute faithfulness
     if len(used_clusterids) > 0:
-        starspace_model = load_model()
-        cluster_centers = torch.Tensor(load_centroids_directly())
-        scores, ranking = classify(generated, starspace_model, "output", cluster_centers, "euclidean") # scores and ranking both shape (num_exs, num_classes)
-        hits_at_n, mrr = compute_metrics(scores, used_clusterids)
-        print("Faithfulness stats from %i examples:" % len(generated))
-        print(", ".join(["hits_at/%i: %.2f%%" % (n, perc) for n, perc in hits_at_n.items()]) + ", " + "mrr: %4f"%mrr)
+        if "specificity" in opt["fromfile_datapath"]:
+            acc = len([1 for (pred, gold) in zip(pred_niwf_bucketids, used_clusterids) if pred==gold])
+            acc /= len(pred_niwf_bucketids)
+            fprint(f, "Faithfulness stats from %i examples: acc=%.2f%%" % (len(generated), acc*100))
+        else:
+            starspace_model = load_model()
+            cluster_centers = torch.Tensor(load_centroids_directly())
+            scores, ranking = classify(generated, starspace_model, "output", cluster_centers, "euclidean") # scores and ranking both shape (num_exs, num_classes)
+            hits_at_n, mrr = compute_metrics(scores, used_clusterids)
+            fprint(f, "Faithfulness stats from %i examples:" % len(generated))
+            fprint(f, ", ".join(["hits_at/%i: %.2f%%" % (n, perc) for n, perc in hits_at_n.items()]) + ", " + "mrr: %4f"%mrr)
+        fprint(f, "")
+
+    # Show closeness metrics
+    fprint(f, show_closeness_metrics(closeness_metrics_eucl))
+    # show_closeness_metrics(closeness_metrics_cos)
 
     # write results to file
-    outfile = "%s.%s.%s" % (opt.get('model_file'), opt.get('datatype'), "wordstats")
-    print("writing to %s" % outfile)
-    with open(outfile, 'w') as f:
-        f.write("%s: %s\n" % (opt.get('datatype'), str(report)))
-        f.write(stat_str + "\n")
-        f.write(unique_stat_str + "\n")
+    # outfile = "%s.%s.%s" % (opt.get('model_file'), opt.get('datatype'), "wordstats")
+    # print("writing to %s" % outfile)
+    # with open(outfile, 'w') as f:
+    #     f.write("%s: %s\n" % (opt.get('datatype'), str(report)))
+    #     f.write(stat_str + "\n")
+    #     f.write(unique_stat_str + "\n")
 
     return report
 
