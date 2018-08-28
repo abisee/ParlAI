@@ -20,10 +20,31 @@ from parlai.core.utils import TimeLogger
 import parlai.scripts.interactive as interactive
 from parlai.scripts.make_cluster_datasets import read_clusterfile
 from parlai.scripts.tfidf import get_tfidfs_wrtclusters, get_tfidfs_wrtsents
-from parlai.show_clustergen_model import show_cluster_examples, show_cluster_keywords
+from parlai.scripts.show_clustergen_model import show_cluster_examples, show_cluster_keywords
 
 import random
 import os
+
+def get_cluster_info_fn(opt, num_clusters):
+    if "ConvAI2_clusters" in opt['fromfile_datapath']:
+        cluster_fname = "/private/home/abisee/ParlAI/data/ConvAI2_clusters/clusters/input_target_clusters_200.txt"
+        text2clusterid, clusterid2lst = read_clusterfile(cluster_fname)
+
+        print("getting tfidfs...")
+        clusterid2tfidfs = get_tfidfs_wrtclusters(clusterid2lst)
+        print("done")
+
+        def get_cluster_info(clusterid):
+            return show_cluster_keywords(clusterid2tfidfs, clusterid, num_samples=10)
+
+    elif "ConvAI2_specificity" in opt['fromfile_datapath']:
+        def get_cluster_info(clusterid):
+            return "specificity of %i" % num_clusters
+
+    else:
+        raise Exception()
+
+    return get_cluster_info
 
 
 def setup_args(parser=None):
@@ -33,6 +54,7 @@ def setup_args(parser=None):
     parser.add_argument('-ne', '--num-examples', type=int, default=-1)
     parser.add_argument('-d', '--display-examples', type='bool', default=False)
     parser.add_argument('-ltim', '--log-every-n-secs', type=float, default=2)
+    parser.add_argument('-of', '--outfile', type=str, default='/tmp/clustercond_alternatives.txt')
     parser.add_argument('--metrics', type=str, default="all",
                         help="list of metrics to show/compute, e.g. ppl,f1,accuracy,hits@1."
                         "If 'all' is specified [default] all are shown.")
@@ -41,6 +63,9 @@ def setup_args(parser=None):
     parser.set_defaults(datatype='valid')
     return parser
 
+def fprint(outfile, txt, end='\n'):
+    print(txt, end=end)
+    outfile.write(txt + end)
 
 def eval_model(opt, printargs=None, print_parser=None):
     """Evaluates a model.
@@ -65,13 +90,6 @@ def eval_model(opt, printargs=None, print_parser=None):
 
     random.seed(42)
 
-    cluster_fname = "/private/home/abisee/ParlAI/data/ConvAI2_clusters/clusters/input_target_clusters_200.txt"
-    text2clusterid, clusterid2lst = read_clusterfile(cluster_fname)
-
-    print("getting tfidfs...")
-    clusterid2tfidfs = get_tfidfs_wrtclusters(clusterid2lst)
-    print("done")
-
     # Create model and assign it to the specified task
     agent = create_agent(opt, requireModelExists=True)
     world = create_task(opt, agent)
@@ -85,11 +103,15 @@ def eval_model(opt, printargs=None, print_parser=None):
         log_every_n_secs = float('inf')
     log_time = TimeLogger()
 
+    num_clusters = agent.opt['num_clusters']
+
+    # This function displays information about the cluster
+    get_cluster_info = get_cluster_info_fn(opt, num_clusters)
+
     # Show some example dialogs:
     cnt = 0
 
-    # num_clusters = 200
-    # clusters_to_report = random.sample(range(num_clusters), 10)
+    f = open(opt['outfile'], "w")
 
     while not world.epoch_done():
         cnt += opt.get('batchsize', 1)
@@ -99,52 +121,56 @@ def eval_model(opt, printargs=None, print_parser=None):
         text = act_0['text']
         for line in text.split('\n'):
             if "your persona" in line:
-                print(line)
+                fprint(f, line)
             else:
-                print("input: %s" % line)
-        print("")
+                fprint(f, "input: %s" % line)
+        fprint(f, "")
         target_clusterid = int(act_0['target_clusterid'])
-        print("target cluster %i (%s)" % (target_clusterid, show_cluster_keywords(clusterid2tfidfs, target_clusterid, num_samples=10)))
-        print("target: %s" % act_0['eval_labels'][0])
-        print("")
+        use_newline = "ConvAI2_clusters" in opt['fromfile_datapath'] # bool
+        fprint(f, "target cluster %i (%s): " % (target_clusterid, get_cluster_info(target_clusterid)), end='\n' if use_newline else '')
+        fprint(f, "target: %s" % act_0['eval_labels'][0])
+        fprint(f, "")
 
-        # run the generation module forward so we can get cluster_ranking
-        world.agents[1].observe(validate(act_0))
-        act_1 = world.agents[1].act()
+        world.agents[1].observe(validate(act_0)) # observe just once
 
-        ranking = world.agents[1].cluster_ranking # shape (1, k), containing ints
-        assert ranking.size(0)==1
-        ranking = ranking.squeeze(0).tolist() # len k
+        # If we have a classification model, run the generation module forward so we can get cluster_ranking
+        if agent.opt.get('classifier_model_file'):
+            act_1 = world.agents[1].act() # run forward
+            ranking = world.agents[1].cluster_ranking # np array shape (1, k), containing ints
+            assert ranking.shape == (1, num_clusters)
+            ranking = ranking.squeeze(0).tolist() # len k
+            clusters_to_report = ranking[:10]
+            fprint(f, "Top clusters predicted by classification model:")
+        else:
+            clusters_to_report = range(num_clusters)
 
-        clusters_to_report = ranking[:10]
-
-        print("Top clusters predicted by starspace model:")
-        print("")
+        # For each of the alternative clusterids, show generated output
         for cluster_id in clusters_to_report:
-            act_0['target_clusterid'] = cluster_id # edit the cluster in act_0
-            act_0['dont_override_target_clusterid'] = True # tell the model not to override with the starspace top choice clusterid
-            world.agents[1].observe(validate(act_0))
+            world.agents[1].observation['target_clusterid'] = cluster_id # change target clusterid
+            world.agents[1].observation['dont_override_target_clusterid'] = True # don't use the clusterid given by the classifier model
             act_1 = world.agents[1].act() # generate
 
-            print("cluster %i (%s)" % (cluster_id, show_cluster_keywords(clusterid2tfidfs, cluster_id, num_samples=10)))
-            print("generated: %s" % act_1['text'])
-            print("")
+            if use_newline:
+                fprint(f, "")
+            fprint(f, "target cluster %i (%s): " % (cluster_id, get_cluster_info(cluster_id)), end='\n' if use_newline else '')
+            fprint(f, "generated: %s" % act_1['text'])
+        fprint(f, "")
 
-        print("==============================")
+        fprint(f, "==============================")
 
         world.update_counters()
 
         if act_0.get('episode_done', False):
-            print("==============================")
-            print("END OF EPISDOE")
-            print("==============================")
-            print("")
+            fprint(f, "==============================")
+            fprint(f, "END OF EPISDOE")
+            fprint(f, "==============================")
+            fprint(f, "")
 
         if opt['num_examples'] > 0 and cnt >= opt['num_examples']:
             break
 
     if world.epoch_done():
-        print("EPOCH DONE")
+        fprint(f, "EPOCH DONE")
     print('finished evaluating task {} using datatype {}'.format(
           opt['task'], opt.get('datatype', 'N/A')))
     report = world.report()
