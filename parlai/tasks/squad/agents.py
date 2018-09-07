@@ -12,6 +12,24 @@ import json
 import os
 
 
+def get_sentence_tokenizer():
+    """
+    Loads the nltk sentence tokenizer
+    """
+    try:
+        import nltk
+    except ImportError:
+        raise ImportError('Please install nltk (e.g. pip install nltk).')
+    # nltk-specific setup
+    st_path = 'tokenizers/punkt/{0}.pickle'.format('english')
+    try:
+        sent_tok = nltk.data.load(st_path)
+    except LookupError:
+        nltk.download('punkt')
+        sent_tok = nltk.data.load(st_path)
+    return sent_tok
+
+
 class IndexTeacher(FixedDialogTeacher):
     """Hand-written SQuAD teacher, which loads the json squad data and
     implements its own `act()` method for interacting with student agent,
@@ -202,82 +220,38 @@ class FulldocTeacher(ParlAIDialogTeacher):
 
 
 class SentenceTeacher(IndexTeacher):
-    """Index teacher where the labels are the sentences the contain the true
-    answer.
-    """
-    def __init__(self, opt, shared=None):
-        super().__init__(opt, shared)
-
-        try:
-            import nltk
-        except ImportError:
-            raise ImportError('Please install nltk (e.g. pip install nltk).')
-        # nltk-specific setup
-        st_path = 'tokenizers/punkt/{0}.pickle'.format('english')
-        try:
-            self.sent_tok = nltk.data.load(st_path)
-        except LookupError:
-            nltk.download('punkt')
-            self.sent_tok = nltk.data.load(st_path)
-
-    def get(self, episode_idx, entry_idx=None):
-        article_idx, paragraph_idx, qa_idx = self.examples[episode_idx]
-        article = self.squad[article_idx]
-        paragraph = article['paragraphs'][paragraph_idx]
-        qa = paragraph['qas'][qa_idx]
-        context = paragraph['context']
-        question = qa['question']
-
-        answers = [a['text'] for a in qa['answers']]
-
-        # temporarily remove '.', '?', '!' from answers for proper sentence
-        # tokenization
-        edited_answers = []
-        for answer in answers:
-            new_answer = answer.replace(
-                '.', '').replace('?', '').replace('!', '')
-            context = context.replace(answer, new_answer)
-            edited_answers.append(new_answer)
-
-        edited_sentences = self.sent_tok.tokenize(context)
-        sentences = []
-
-        for sentence in edited_sentences:
-            for i in range(len(edited_answers)):
-                sentence = sentence.replace(edited_answers[i], answers[i])
-                sentences.append(sentence)
-
-        for i in range(len(edited_answers)):
-            context = context.replace(edited_answers[i], answers[i])
-
-        labels = []
-        label_starts = []
-        for sentence in sentences:
-            for answer in answers:
-                if answer in sentence and sentence not in labels:
-                    labels.append(sentence)
-                    label_starts.append(context.index(sentence))
-                    break
-
-        action = {
-            'id': 'squad',
-            'text': context + '\n' + question,
-            'labels': labels,
-            'episode_done': True,
-            'answer_starts': label_starts
-        }
-        return action
-
-
-class SentenceeditTeacher(SentenceTeacher):
-    """Index teacher where the labels are the sentences the contain the true
+    """Teacher where the label(s) are the sentences that contain the true
     answer.
 
     Some punctuation may be removed from the context and the answer for
     tokenization purposes.
+
+    If `include_context` is False, the teacher returns action dict in the
+    following format:
+    {
+        'context': <context>,
+        'text': <question>,
+        'labels': <sentences containing the true answer>,
+        'label_candidates': <all sentences in the context>,
+        'episode_done': True,
+        'answer_starts': <index of start of answer in context>
+    }
+    Otherwise, the 'text' field contains <context>\n<question> and there is
+    no separate context field.
     """
     def __init__(self, opt, shared=None):
         super().__init__(opt, shared)
+        self.sent_tok = get_sentence_tokenizer()
+        self.include_context = opt.get('include_context', False)
+
+    @staticmethod
+    def add_cmdline_args(argparser):
+        agent = argparser.add_argument_group(
+            'SQuAD Sentence Teacher Arguments'
+        )
+        agent.add_argument('--include-context', type='bool', default=False,
+                           help='include context within text instead of as a '
+                           'separate field')
 
     def get(self, episode_idx, entry_idx=None):
         article_idx, paragraph_idx, qa_idx = self.examples[episode_idx]
@@ -310,72 +284,17 @@ class SentenceeditTeacher(SentenceTeacher):
                     break
 
         action = {
-            'id': 'squad',
-            'text': context + '\n' + question,
+            'context': context,
+            'text': question,
             'labels': labels,
             'label_candidates': edited_sentences,
             'episode_done': True,
             'answer_starts': label_starts
         }
-        return action
 
-
-class SentencelabelsTeacher(IndexTeacher):
-    """Teacher which contains the question as the text, the sentences as the
-    label candidates, and the label as the sentence containing the answer.
-
-    Some punctuation may be removed for tokenization purposes.
-    """
-    def __init__(self, opt, shared=None):
-        super().__init__(opt, shared)
-
-        try:
-            import nltk
-        except ImportError:
-            raise ImportError('Please install nltk (e.g. pip install nltk).')
-        # nltk-specific setup
-        st_path = 'tokenizers/punkt/{0}.pickle'.format('english')
-        try:
-            self.sent_tok = nltk.data.load(st_path)
-        except LookupError:
-            nltk.download('punkt')
-            self.sent_tok = nltk.data.load(st_path)
-
-    def get(self, episode_idx, entry_idx=None):
-        article_idx, paragraph_idx, qa_idx = self.examples[episode_idx]
-        article = self.squad[article_idx]
-        paragraph = article['paragraphs'][paragraph_idx]
-        qa = paragraph['qas'][qa_idx]
-        context = paragraph['context']
-        question = qa['question']
-
-        answers = [a['text'] for a in qa['answers']]
-
-        # remove '.', '?', '!' from answers for proper sentence
-        # tokenization
-        edited_answers = []
-        for answer in answers:
-            new_answer = answer.replace(
-                '.', '').replace('?', '').replace('!', '')
-            context = context.replace(answer, new_answer)
-            edited_answers.append(new_answer)
-
-        edited_sentences = self.sent_tok.tokenize(context)
-
-        labels = []
-        for sentence in edited_sentences:
-            for answer in edited_answers:
-                if answer in sentence and sentence not in labels:
-                    labels.append(sentence)
-                    break
-
-        action = {
-            'id': 'SquadSentenceLabels',
-            'text': question,
-            'labels': labels,
-            'label_candidates': edited_sentences,
-            'episode_done': True,
-        }
+        if self.include_context:
+            action['text'] = action['context'] + '\n' + action['text']
+            del action['context']
 
         return action
 
@@ -385,26 +304,40 @@ class FulldocsentenceTeacher(FulldocTeacher):
     label candidates, and the label as the sentence containing the answer.
 
     Some punctuation may be removed for tokenization purposes.
+
+    If `include_context` is False, the teacher returns action dict in the
+    following format:
+    {
+        'context': <context>,
+        'text': <question>,
+        'labels': <sentences containing the true answer>,
+        'label_candidates': <all sentences in the context>,
+        'episode_done': True,
+        'answer_starts': <index of start of answer in context>
+    }
+    Otherwise, the 'text' field contains <context>\n<question> and there is
+    no separate context field.
     """
     def __init__(self, opt, shared=None):
         super().__init__(opt, shared)
+        self.sent_tok = get_sentence_tokenizer()
+        self.include_context = opt.get('include_context', False)
 
-        try:
-            import nltk
-        except ImportError:
-            raise ImportError('Please install nltk (e.g. pip install nltk).')
-        # nltk-specific setup
-        st_path = 'tokenizers/punkt/{0}.pickle'.format('english')
-        try:
-            self.sent_tok = nltk.data.load(st_path)
-        except LookupError:
-            nltk.download('punkt')
-            self.sent_tok = nltk.data.load(st_path)
+    @staticmethod
+    def add_cmdline_args(argparser):
+        agent = argparser.add_argument_group(
+            'SQuAD Fulldoc Sentence Teacher Arguments'
+        )
+        agent.add_argument('--include-context', type='bool', default=False,
+                           help='include context within text instead of as a '
+                           'separate field')
 
     def get(self, episode_idx, entry_idx=None):
+        action = {}
         episode = self.episodes[episode_idx][entry_idx]
-        entry = {'episode_done': episode['episode_done']}
-        context = ' '.join(episode['text'].split('\n')[:-1]).replace('\xa0', ' ')
+        context = ' '.join(
+            episode['text'].split('\n')[:-1]
+        ).replace('\xa0', ' ')  # get rid of non breaking space characters
         question = episode['text'].split('\n')[-1]
         label_field = 'labels' if 'labels' in episode else 'eval_labels'
         answers = []
@@ -414,19 +347,25 @@ class FulldocsentenceTeacher(FulldocTeacher):
             context = context.replace(answer, new_answer)
             answers.append(new_answer)
         sentences = self.sent_tok.tokenize(context)
-        entry[label_field] = []
+        labels = []
         label_starts = []
         for sentence in sentences:
             for answer in answers:
-                if answer in sentence and sentence not in entry[label_field]:
-                    entry[label_field].append(sentence)
+                if answer in sentence and sentence not in labels:
+                    labels.append(sentence)
                     label_starts.append(context.index(sentence))
 
-        entry['text'] = context + '\n' + question
-        entry['answer_starts'] = label_starts
-        entry['label_candidates'] = sentences
+        action = {
+            'context': context,
+            'text': question,
+            label_field: labels,
+            'answer_starts': label_starts,
+            'label_candidates': sentences,
+            'episode_done': episode['episode_done']
+        }
 
-        if entry[label_field] == []:
-            entry = {'episode_done': episode['episode_done']}
+        if self.include_context:
+            action['text'] = action['context'] + '\n' + action['text']
+            del action['context']
 
-        return entry
+        return action

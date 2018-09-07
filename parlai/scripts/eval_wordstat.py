@@ -5,18 +5,19 @@
 # LICENSE file in the root directory of this source tree. An additional grant
 # of patent rights can be found in the PATENTS file in the same directory.
 """
-This helper script can be used alone with modelfile and task: the output will contain the
-word statistics of the model outputs.
-One can also use the function defined here in other places in order to get such statistic
-for any agent given the agent object (with corr. dict) and a sequence.
+This helper script can be used alone with modelfile and task: the output will
+contain the word statistics of the model outputs.
+One can also use the function defined here in other places in order to get such
+statistic for any agent given the agent object (with corr. dict) and a
+sequence.
 
 Example:
     python eval_wordstat.py -mf data/model -t convai2:self
 
-One can specify bins boundaries with argument -fb | --freq-bins 10,100,1000 or so
+One can specify bins boundaries with argument -fb | --freq-bins 10,100,1000
 
-Also function get_word_stats can be used in other parts of runtime code since it depends only on
-the agent object. To use it - firstly do the import:
+Also function get_word_stats can be used in other parts of runtime code since
+it depends only on the agent object. To use it - firstly do the import:
 
     from parlai.scripts.eval_wordstat import get_word_stats
 
@@ -139,12 +140,22 @@ def eval_wordstat(opt, print_parser=None):
     f = open(outfile, "w")
 
     cnt = 0
-    word_statistics = {'mean_wlength': [], 'mean_clength': [], 'freqs_cnt': Counter(), 'word_cnt': 0, 'pred_list': [], 'pure_pred_list': [], 'context_list': []}
+    word_statistics = {
+        'mean_wlength': [],
+        'mean_clength': [],
+        'freqs_cnt': Counter(),
+        'word_cnt': 0,
+        'pred_list': [],
+        'pure_pred_list': [],
+        'context_list': []
+    }
     bins = [int(i) for i in opt['freq_bins'].split(',')]
 
     def process_prediction(prediction, word_statistics):
         word_statistics['pred_list'].append(normalize_answer(prediction))
-        freqs, _cnt, wlength, clength = get_word_stats(prediction, dictionary, bins=bins)
+        freqs, _cnt, wlength, clength = get_word_stats(
+            prediction, dictionary, bins=bins
+        )
         word_statistics['word_cnt'] += _cnt
         word_statistics['mean_wlength'].append(wlength)
         word_statistics['mean_clength'].append(clength)
@@ -252,7 +263,7 @@ def eval_wordstat(opt, print_parser=None):
     if opt['compute_unique'] is True:
         unique_list = []
         cntr = Counter(word_statistics['pred_list'])
-        for k,v in cntr.items():
+        for k, v in cntr.items():
             if v == 1:
                 unique_list.append(k)
         unique_stat_str = "Unique responses: {:.{prec}f}%".format(len(unique_list) / len(word_statistics['pred_list']) * 100, prec=2)
@@ -260,9 +271,15 @@ def eval_wordstat(opt, print_parser=None):
 
     if opt['dump_predictions_path'] is not None:
         with open(opt['dump_predictions_path'], 'w') as f:
-            f.writelines(['CONTEXT: {}\nPREDICTION:{}\n\n'.format(c,p) for c,p in zip(word_statistics['context_list'],word_statistics['pure_pred_list'])])
+            f.writelines([
+                'CONTEXT: {}\nPREDICTION:{}\n\n'.format(c, p)
+                for c, p in zip(
+                    word_statistics['context_list'],
+                    word_statistics['pure_pred_list']
+                )
+            ])
         if opt['compute_unique'] is True:
-            with open(opt['dump_predictions_path']+'_unique', 'w') as f:
+            with open(opt['dump_predictions_path'] + '_unique', 'w') as f:
                 f.writelines(['{}\n'.format(i) for i in unique_list])
 
     stat_str = 'total_words: {}, '.format(word_statistics['word_cnt']) + ', '.join(

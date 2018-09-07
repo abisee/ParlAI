@@ -5,6 +5,7 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 
 from parlai.core.dict import DictionaryAgent
+from parlai.core.utils import argsort, padded_tensor
 
 try:
     from fairseq import models, optim, criterions
@@ -15,6 +16,7 @@ except ImportError:
     )
 from fairseq import trainer, fp16_trainer
 from fairseq.sequence_generator import SequenceGenerator
+from fairseq.sequence_scorer import SequenceScorer
 from fairseq import options
 from fairseq.tasks.fairseq_task import FairseqTask
 from fairseq.utils import convert_padding_direction
@@ -41,6 +43,11 @@ NON_OVERRIDABLE_ARGS = {
     'decoder_out_embed_dim',
     'decoder_attention',
 }
+
+
+def _is_nonempty_observation(obs):
+    """Check if an observation has no tokens in it."""
+    return len(obs.get('text_vec', [])) > 0
 
 
 def _fairseq_opt_wrapper(opt, skip_pretrained_embedding_loading=False):
@@ -193,6 +200,8 @@ class FairseqAgent(TorchAgent):
         "adam_betas": "(0.9,0.98)",
         "optimizer": "adam",
         "clip_norm": 0.1,
+        "lr": 3e-4,
+        "arch": "transformer_iwslt_de_en",
     }
 
     metrics = {}
@@ -207,7 +216,7 @@ class FairseqAgent(TorchAgent):
         agent.add_argument(
             '--fp16',
             default=False,
-            type=bool,
+            type='bool',
             help='Use fp16 training'
         )
         agent.add_argument(
@@ -312,8 +321,9 @@ class FairseqAgent(TorchAgent):
             self.task = _ParlaiTask(self.dict)
 
             # actually construct the model and generator
-            model_class = models.ARCH_MODEL_REGISTRY[self.args.arch]
-            self.model = model_class.build_model(self.args, self.task)
+            self.model = self.build_model()
+
+            # Construct the generator and scorer
             self.generator = SequenceGenerator(
                 [self.model],
                 tgt_dict=self.dict,
@@ -326,6 +336,8 @@ class FairseqAgent(TorchAgent):
                 sampling_topk=self.args.sampling_topk,
                 sampling_temperature=self.args.sampling_temperature,
             )
+            self.scorer = SequenceScorer([self.model], self.dict)
+
             # set up the grader and the trainer
             self.criterion = criterions.build_criterion(self.args, self.task)
 
@@ -341,6 +353,7 @@ class FairseqAgent(TorchAgent):
                 self.trainer = trainer.Trainer(
                     self.args, self.task, self.model, self.criterion
                 )
+            self.trainer._build_optimizer()
 
             # if the model already existed, let's preload it and the trainer
             if model_file_exists:
@@ -371,6 +384,15 @@ class FairseqAgent(TorchAgent):
                 raise ValueError(
                     '{} cannot be overridden when --model-file is specified'.format(k)
                 )
+
+    def build_model(self):
+        """
+        Construct the actual Fairseq model. Default implementation is to use
+        Fairseq's arch builder, but this method may be overridden to build custom
+        models.
+        """
+        model_class = models.ARCH_MODEL_REGISTRY[self.args.arch]
+        return model_class.build_model(self.args, self.task)
 
     def share(self):
         shared = super().share()
@@ -410,13 +432,14 @@ class FairseqAgent(TorchAgent):
         super().reset()
         self.reset_metrics()
 
-    def batchify(self, *args, **kwargs):
-        """Override parent batchify to set sorting to true.
-
-        Sorting inputs is needed for torch.nn.utils.rnn.pack_padded_sequence.
+    def batchify(self, obs_batch):
         """
-        kwargs['sort'] = True
-        return super().batchify(*args, **kwargs)
+        Override parent batchify to set requirements for fairseq.
+
+        Fairseq depends on sorted batch inputs for a call to rnn.pad_packed_sequence.
+        Fairseq models cannot handle zero length sentences
+        """
+        return super().batchify(obs_batch, sort=True, is_valid=_is_nonempty_observation)
 
     def train_step(self, batch):
         """Process batch of inputs and targets and train on them.
@@ -448,12 +471,53 @@ class FairseqAgent(TorchAgent):
         if batch.label_vec is not None:
             # Interactive mode won't have a gold label
             self.trainer.valid_step(samples)
-        # Grade each of the candidate sequences
-        # TODO: grade everything in observations[i]['label_candidates']
 
+        # Output placeholders
+        reranked_cands = None
+        generated_output = None
+
+        # Grade each of the candidate sequences
+        if batch.candidate_vecs is not None:
+            bsz = len(batch.text_vec)
+            reranked_cands = []
+            # score the candidates for each item in the batch separately, so that
+            # we can support variable number of candidates
+            for i in range(bsz):
+                cands = batch.candidate_vecs[i]
+                if not cands:
+                    reranked_cands.append(None)
+                    continue
+                ncand = len(cands)
+                # repeat the input many times
+                xs = batch.text_vec[i].unsqueeze(0).expand(ncand, -1)
+                # some models crash if there's leading padding on every example
+                xs = xs[:, :batch.text_lengths[i]]
+                # and appropriately pack the outputs
+                ys, _ = padded_tensor(cands, self.NULL_IDX, self.use_cuda)
+                s = self._make_sample(xs, ys)
+                # perform the actual grading, extract the scores
+                scored = list(self.scorer.score_batched_itr([s], cuda=self.use_cuda))
+                scores = [s[3][0]['score'].item() for s in scored]
+                # intentional hanging comma here; argsort returns a list
+                ranked, = argsort(scores, batch.candidates[i], descending=True)
+                reranked_cands.append(ranked)
+
+        # Next generate freely to create our response
         if not self.args.skip_generation:
-            # Next generate freely to create our response
-            return Output(self._generate(samples), None)
+            generated_output = self._generate(samples)
+        elif reranked_cands:
+            # we're skiping generation, but we're also grading candidates
+            # so output the highest ranked candidate
+            # In the case of zero candidates, we don't have something to rank,
+            # so we may need to pass on that None
+            generated_output = [
+                ranked and ranked[0] or None for ranked in reranked_cands
+            ]
+        else:
+            # no output at all
+            pass
+
+        return Output(generated_output, reranked_cands)
 
     def _generate(self, samples):
         src_tokens = samples["net_input"]["src_tokens"]
@@ -538,6 +602,7 @@ class FairseqAgent(TorchAgent):
         # TODO: should the right/left padding thing be in torch agent?
         repadded = convert_padding_direction(xs, self.dict.pad(), right_to_left=True)
         sample = {}
+        sample["id"] = torch.arange(len(xs) - 1)
         sample["net_input"] = {
             "src_tokens": repadded,
             "src_lengths": self._seq_length(xs),
