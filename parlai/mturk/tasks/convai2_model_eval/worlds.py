@@ -138,6 +138,7 @@ class PersonasGenerator(object):
         idx = self.idx_stack.pop()
         data = np.load(os.path.join(self.personas_path,
                                     self.personas_name_list[int(idx)]))
+        data = [p.strip() for p in data] # remove whitespace from around each persona line
         return (idx, data)
 
     def push_persona(self, idx):
@@ -169,7 +170,7 @@ class PersonaProfileWorld(MTurkOnboardWorld):
         persona_text = ''
         for s in data:
             persona_text += '<b><span style="color:blue">' \
-                            '{}\n</span></b>'.format(s.strip())
+                            '{}\n</span></b>'.format(detokenize(s.strip()))
 
         self.mturk_agent.observe({
             'id': 'SYSTEM',
@@ -633,3 +634,20 @@ class Convai2EvalWorld(MultiAgentDialogWorld):
             n_jobs=len(self.agents),
             backend='threading'
         )(delayed(shutdown_agent)(agent) for agent in self.agents)
+
+
+def detokenize(text):
+    """Do really simple detokenization"""
+    text = text.strip()
+    tokens = text.split(' ')
+    tokens = [token if token!="i" else "I" for token in tokens] # replace i with I
+    text = " ".join(tokens)
+    for (sb_0, sb_1) in [
+        (' .', '.'),
+        (' ,', ','),
+        (' ?', '?'),
+        (' !', '!'),
+    ]:
+        text = text.replace(sb_0, sb_1)
+    text = text[:1].upper() + text[1:] # make first character capital
+    return text
