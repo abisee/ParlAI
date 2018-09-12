@@ -18,7 +18,7 @@ import random
 
 
 # Instruction messages
-ONBOARD_MSG = '\nWelcome! Below is your persona \
+ONBOARD_MSG = '\nWelcome! Below is your character \
         (you can find it on the left side of the chat)\n \
         When you are ready to start your conversation, \
         click the "I am ready, continue" button below\n'
@@ -104,8 +104,9 @@ class PersonasGenerator(object):
         self.personas_idx_stack_path = os.path.join(os.getcwd(),
                                                     './personas_idx_stack.pkl')
 
-        self.personas_path = '{}/data/personas-{}'.format(
+        self.personas_path = '{}/data/personas-{}-{}'.format(
                              os.getcwd(),
+                             opt['datatype'],
                              opt['persona_type'] +
                                 'Revised' if opt['revised'] else 'Original')
         if not os.path.exists(self.personas_path):
