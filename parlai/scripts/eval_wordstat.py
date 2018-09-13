@@ -44,6 +44,7 @@ import torch
 import copy
 import numpy
 import random
+import json
 
 
 def setup_args(parser=None):
@@ -70,7 +71,7 @@ def setup_args(parser=None):
 
 def fprint(outfile, txt, end='\n'):
     print(txt, end=end)
-    outfile.write(txt + end)
+    # outfile.write(txt + end)
 
 def get_word_stats(text, agent_dict, bins=[0, 100, 1000, 100000]):
     """
@@ -130,14 +131,17 @@ def eval_wordstat(opt, print_parser=None):
         log_every_n_secs = float('inf')
     log_time = TimeLogger()
 
+    data = {} # to write to json
+    data['opt'] = opt
     if opt['eval_gold']:
-        outfile = "/tmp/goldresponse_wordstat"
+        outfile = "/tmp/goldresponse_wordstat.json"
     else:
-        outfile = "%s.%s.%s" % (opt.get('model_file'), opt.get('datatype'), "wordstats")
+        outfile = "%s.%s.%s.%s.json" % (opt.get('model_file'), opt.get('datatype'), "beam%i" % opt['beam_size'], "wordstats")
         if opt['fixed_clusterid'] != -1:
             outfile += ".fixed_clusterid%i" % (opt['fixed_clusterid'])
         print("writing to outfile: %s" % outfile)
-    f = open(outfile, "w")
+    # f = open(outfile, "w")
+    f = None
 
     cnt = 0
     word_statistics = {
@@ -186,7 +190,9 @@ def eval_wordstat(opt, print_parser=None):
         niwf_bucket_lbs = load_niwf_buckets(10)
 
     while not world.epoch_done():
+        print("running world.parley...")
         world.parley()
+        print("finished parley. updating counts...")
 
         if batch_size == 1:
             raise Exception("some things aren't implemented for batchsize 1")
@@ -246,6 +252,7 @@ def eval_wordstat(opt, print_parser=None):
 
 
         if log_time.time() > log_every_n_secs:
+            print('reporting...')
             report = world.report()
             text, report = log_time.log(report['exs'], world.num_examples(), report)
             print(text)
@@ -266,8 +273,11 @@ def eval_wordstat(opt, print_parser=None):
         for k, v in cntr.items():
             if v == 1:
                 unique_list.append(k)
-        unique_stat_str = "Unique responses: {:.{prec}f}%".format(len(unique_list) / len(word_statistics['pred_list']) * 100, prec=2)
+        unique_percent = len(unique_list) / len(word_statistics['pred_list']) * 100
+        unique_stat_str = "Unique responses: {:.{prec}f}%".format(unique_percent, prec=2)
         fprint(f, unique_stat_str)
+
+    data['unique_percent'] = unique_percent
 
     if opt['dump_predictions_path'] is not None:
         with open(opt['dump_predictions_path'], 'w') as f:
@@ -289,8 +299,18 @@ def eval_wordstat(opt, print_parser=None):
         stat_str, numpy.array(word_statistics['mean_wlength']).mean(), numpy.array(word_statistics['mean_clength']).mean(), prec=2)
     fprint(f, stat_str)
 
+    data['word_statistics'] = {
+        'mean_wlength': numpy.array(word_statistics['mean_wlength']).mean(),
+        'mean_clength': numpy.array(word_statistics['mean_clength']).mean(),
+        'freqs_perc': {b : (word_statistics['freqs_cnt'].get(b,0) * 100 / word_statistics['word_cnt']) for b in bins},
+    }
+
+    data['predictions'] = word_statistics['pure_pred_list']
+
     report = world.report()
     fprint(f, str(report))
+
+    data['report'] = report
 
     # Show distinct-n metrics
     num_unigrams = sum(ngram_counters[1].values())
@@ -300,6 +320,8 @@ def eval_wordstat(opt, print_parser=None):
         for n, ngram_counter in ngram_counters.items()
         ]))
     fprint(f, "")
+
+    data['distinct-n'] = {n: len(ngram_counter)/num_unigrams for n, ngram_counter in ngram_counters.items()}
 
     # Print niwf metrics
     avg_niwf = sum(niwfs)/len(niwfs)
@@ -312,12 +334,20 @@ def eval_wordstat(opt, print_parser=None):
     fprint(f, "Percent generated in each bucket: %s" % (", ".join(["%.2f%% (%i/%i)" % (bucket2count[bucketid]*100/len(niwfs), bucket2count[bucketid], len(niwfs)) for bucketid in sorted(bucket2count.keys())])))
     fprint(f, "Number of responses containing words that are OOV for PersonaChat (affecting NIWF measure): %i/%i (%.2f%%)\n" % (niwf_oov_cnt, len(niwfs), niwf_oov_cnt*100/len(niwfs)))
 
+    data['niwf'] = {
+        'avg_niwf': avg_niwf,
+        'niwf_bucket_lbs': niwf_bucket_lbs,
+        'niwf_bucket_dist': [bucket2count[bucketid]*100/len(niwfs) for bucketid in sorted(bucket2count.keys())], # list of percentages
+        'niwf_oov_cnt': niwf_oov_cnt,
+    }
+
     # Compute faithfulness
     if len(used_clusterids) > 0:
         if "specificity" in opt["fromfile_datapath"]:
             acc = len([1 for (pred, gold) in zip(pred_niwf_bucketids, used_clusterids) if pred==gold])
             acc /= len(pred_niwf_bucketids)
             fprint(f, "Faithfulness stats from %i examples: acc=%.2f%%" % (len(generated), acc*100))
+            data['faithfulness'] = acc*100
         else:
             starspace_model = load_model()
             cluster_centers = torch.Tensor(load_centroids_directly())
@@ -332,12 +362,9 @@ def eval_wordstat(opt, print_parser=None):
     # show_closeness_metrics(closeness_metrics_cos)
 
     # write results to file
-    # outfile = "%s.%s.%s" % (opt.get('model_file'), opt.get('datatype'), "wordstats")
-    # print("writing to %s" % outfile)
-    # with open(outfile, 'w') as f:
-    #     f.write("%s: %s\n" % (opt.get('datatype'), str(report)))
-    #     f.write(stat_str + "\n")
-    #     f.write(unique_stat_str + "\n")
+    print("writing to %s" % outfile)
+    with open(outfile, 'w') as f:
+        json.dump(data, f)
 
     return report
 
