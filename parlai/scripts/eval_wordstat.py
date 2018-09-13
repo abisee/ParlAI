@@ -134,12 +134,13 @@ def eval_wordstat(opt, print_parser=None):
     data = {} # to write to json
     data['opt'] = opt
     if opt['eval_gold']:
-        outfile = "/tmp/goldresponse_wordstat.json"
+        outfile = "/private/home/abisee/models/goldresponse.wordstats.json"
     else:
-        outfile = "%s.%s.%s.%s.json" % (opt.get('model_file'), opt.get('datatype'), "beam%i" % opt['beam_size'], "wordstats")
+        outfile = "%s.%s.%s" % (opt.get('model_file'), opt.get('datatype'), "beam%i" % opt['beam_size'])
         if opt['fixed_clusterid'] != -1:
             outfile += ".fixed_clusterid%i" % (opt['fixed_clusterid'])
-        print("writing to outfile: %s" % outfile)
+        outfile += ".wordstats.json"
+    print("writing to outfile: %s" % outfile)
     # f = open(outfile, "w")
     f = None
 
