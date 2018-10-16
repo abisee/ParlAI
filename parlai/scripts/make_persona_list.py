@@ -25,15 +25,20 @@ def dump_data(opt):
 
     all_persona_lines = Counter()
 
+    num = 0
+
     print('[ starting to convert.. ]')
     for _ in range(opt['num_examples']):
         world.parley()
+        num += 1
+        if num % 100 == 0:
+            print(num)
 
         text = world.acts[0]['text']
         lines = text.split('\n')
-        persona_lines = [l for l in lines if "your persona: "==l[:14]]
-        persona_lines = [l[14:] for l in persona_lines]
-        all_persona_lines.update(persona_lines)
+        if len(lines)>1:
+            persona = " \\n ".join(lines[:-1]) + " \\n"
+            all_persona_lines.update([persona])
 
         if world.epoch_done():
             print('EPOCH DONE')
