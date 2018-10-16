@@ -8,7 +8,7 @@ if __name__=="__main__":
     with open(optfile, 'rb') as handle:
         new_opt = pickle.load(handle)
 
-    new_opt['dict_file'] = "/checkpoint/abisee/jase/all.dict"
+    import pdb; pdb.set_trace()
 
     for key in sorted(new_opt.keys()):
         print(key, new_opt[key])
