@@ -1,8 +1,11 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree. An additional grant
 # of patent rights can be found in the PATENTS file in the same directory.
+"""Module files as torch.nn.Module subclasses for Seq2seqAgent."""
 
 import math
 
@@ -12,13 +15,16 @@ from torch.nn.parameter import Parameter
 from torch.nn.utils.rnn import pad_packed_sequence, pack_padded_sequence
 import torch.nn.functional as F
 
+from parlai.core.utils import NEAR_INF
+
 
 def opt_to_kwargs(opt):
     """Get kwargs for seq2seq from opt."""
     kwargs = {}
     for k in ['numlayers', 'dropout', 'bidirectional', 'rnn_class',
               'lookuptable', 'decoder', 'numsoftmax',
-              'attention', 'attention_length', 'attention_time']:
+              'attention', 'attention_length', 'attention_time',
+              'input_dropout']:
         if k in opt:
             kwargs[k] = opt[k]
     return kwargs
@@ -53,7 +59,8 @@ class Seq2seq(nn.Module):
         bidirectional=False, rnn_class='lstm', lookuptable='unique',
         decoder='same', numsoftmax=1,
         attention='none', attention_length=48, attention_time='post',
-        padding_idx=0, start_idx=1, longest_label=1,
+        padding_idx=0, start_idx=1, unknown_idx=3, input_dropout=0,
+        longest_label=1,
     ):
         """Initialize seq2seq model.
 
@@ -69,27 +76,29 @@ class Seq2seq(nn.Module):
         rnn_class = Seq2seq.RNN_OPTS[rnn_class]
         self.decoder = RNNDecoder(
             num_features, embeddingsize, hiddensize,
-            padding_idx=self.NULL_IDX, rnn_class=rnn_class,
+            padding_idx=padding_idx, rnn_class=rnn_class,
             numlayers=numlayers, dropout=dropout,
             attn_type=attention, attn_length=attention_length,
             attn_time=attention_time,
             bidir_input=bidirectional)
 
-        shared_lt = (self.decoder.lt
+        shared_lt = (self.decoder.lt  # share embeddings between rnns
                      if lookuptable in ('enc_dec', 'all') else None)
         shared_rnn = self.decoder.rnn if decoder == 'shared' else None
         self.encoder = RNNEncoder(
             num_features, embeddingsize, hiddensize,
-            padding_idx=self.NULL_IDX, rnn_class=rnn_class,
+            padding_idx=padding_idx, rnn_class=rnn_class,
             numlayers=numlayers, dropout=dropout,
             bidirectional=bidirectional,
-            shared_lt=shared_lt, shared_rnn=shared_rnn)
+            shared_lt=shared_lt, shared_rnn=shared_rnn,
+            unknown_idx=unknown_idx, input_dropout=input_dropout)
 
-        shared_weight = (self.decoder.lt
+        shared_weight = (self.decoder.lt.weight  # use embeddings for projection
                          if lookuptable in ('dec_out', 'all') else None)
         self.output = OutputLayer(
             num_features, embeddingsize, hiddensize, dropout=dropout,
-            numsoftmax=numsoftmax, shared_weight=shared_weight)
+            numsoftmax=numsoftmax, shared_weight=shared_weight,
+            padding_idx=padding_idx)
 
     def _encode(self, xs, prev_enc=None):
         """Encode the input or return cached encoder state."""
@@ -278,13 +287,39 @@ class Seq2seq(nn.Module):
         return scores, cand_scores, encoder_states
 
 
+class UnknownDropout(nn.Module):
+    """With set frequency, replaces tokens with unknown token.
+
+    This layer can be used right before an embedding layer to make the model
+    more robust to unknown words at test time.
+    """
+
+    def __init__(self, unknown_idx, probability):
+        """Initialize layer.
+
+        :param unknown_idx: index of unknown token, replace tokens with this
+        :param probability: during training, replaces tokens with unknown token
+                            at this rate.
+        """
+        super().__init__()
+        self.unknown_idx = unknown_idx
+        self.prob = probability
+
+    def forward(self, input):
+        """If training and dropout rate > 0, masks input with unknown token."""
+        if self.training and self.prob > 0:
+            mask = input.new(input.size()).float().uniform_(0, 1) < self.prob
+            input.masked_fill_(mask, self.unknown_idx)
+        return input
+
+
 class RNNEncoder(nn.Module):
     """RNN Encoder."""
 
     def __init__(self, num_features, embeddingsize, hiddensize,
                  padding_idx=0, rnn_class='lstm', numlayers=2, dropout=0.1,
                  bidirectional=False, shared_lt=None, shared_rnn=None,
-                 sparse=False):
+                 input_dropout=0, unknown_idx=None, sparse=False):
         """Initialize recurrent encoder."""
         super().__init__()
 
@@ -292,6 +327,10 @@ class RNNEncoder(nn.Module):
         self.layers = numlayers
         self.dirs = 2 if bidirectional else 1
         self.hsz = hiddensize
+
+        if input_dropout > 0 and unknown_idx is None:
+            raise RuntimeError('input_dropout > 0 but unknown_idx not set')
+        self.input_dropout = UnknownDropout(unknown_idx, input_dropout)
 
         if shared_lt is None:
             self.lt = nn.Embedding(num_features, embeddingsize,
@@ -322,6 +361,7 @@ class RNNEncoder(nn.Module):
         bsz = len(xs)
 
         # embed input tokens
+        xs = self.input_dropout(xs)
         xes = self.dropout(self.lt(xs))
         attn_mask = xs.ne(0)
         try:
@@ -417,7 +457,7 @@ class OutputLayer(nn.Module):
     """Takes in final states and returns distribution over candidates."""
 
     def __init__(self, num_features, embeddingsize, hiddensize, dropout=0,
-                 numsoftmax=1, shared_weight=None):
+                 numsoftmax=1, shared_weight=None, padding_idx=-1):
         """Initialize output layer.
 
         :param num_features:  number of candidates to rank
@@ -430,9 +470,18 @@ class OutputLayer(nn.Module):
         :param shared_weight: (num_features x esz) vector of weights to use as
                               the final linear layer's weight matrix. default
                               None starts with a new linear layer.
+        :param padding_idx:   model should output a large negative number for
+                              score at this index. if set to -1 (default),
+                              this is disabled. if >= 0, subtracts one from
+                              num_features and always outputs -1e20 at this
+                              index. only used when shared_weight is not None.
+                              setting this param helps protect gradient from
+                              entering shared embedding matrices.
         """
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
+
+        self.padding_idx = padding_idx if shared_weight is not None else -1
 
         # embedding to scores
         if shared_weight is None:
@@ -440,13 +489,19 @@ class OutputLayer(nn.Module):
             self.e2s = nn.Linear(embeddingsize, num_features, bias=True)
         else:
             # use shared weights and a bias layer instead
-            self.weight = shared_weight
+            if padding_idx == 0:
+                num_features -= 1  # don't include padding
+                shared_weight = shared_weight.narrow(0, 1, num_features)
+            elif padding_idx > 0:
+                raise RuntimeError('nonzero pad_idx not yet implemented')
+            self.weight = Parameter(shared_weight)
             self.bias = Parameter(torch.Tensor(num_features))
             self.reset_parameters()
             self.e2s = lambda x: F.linear(x, self.weight, self.bias)
 
         self.numsoftmax = numsoftmax
         if numsoftmax > 1:
+            self.esz = embeddingsize
             self.softmax = nn.Softmax(dim=1)
             self.prior = nn.Linear(hiddensize, numsoftmax, bias=False)
             self.latent = nn.Linear(hiddensize, numsoftmax * embeddingsize)
@@ -501,6 +556,12 @@ class OutputLayer(nn.Module):
             e = self.dropout(self.o2e(input))
             # esz => num_features
             scores = self.e2s(e)
+
+        if self.padding_idx == 0:
+            pad_score = scores.new(scores.size(0),
+                                   scores.size(1),
+                                   1).fill_(-NEAR_INF)
+            scores = torch.cat([pad_score, scores], dim=-1)
 
         return scores
 
@@ -614,7 +675,7 @@ class AttentionLayer(nn.Module):
             # calculate activation scores, apply mask if needed
             if attn_mask is not None:
                 # remove activation from NULL symbols
-                attn_w_premask.masked_fill_((1 - attn_mask), -1e20)
+                attn_w_premask.masked_fill_((1 - attn_mask), -NEAR_INF)
             attn_weights = F.softmax(attn_w_premask, dim=1)
 
         # apply the attention weights to the encoder states

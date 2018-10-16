@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -30,7 +32,9 @@ class WebTeacher(DialogTeacher):
                 self.suffix = 'dev'
 
         qa_dir, self.evidence_dir = _path(opt)
-        opt['datafile'] = os.path.join(qa_dir, self.prefix + 'web-' + self.suffix + '.json')
+        opt['datafile'] = os.path.join(
+            qa_dir, self.prefix + 'web-' + self.suffix + '.json'
+        )
         self.id = 'triviaqa'
         super().__init__(opt, shared)
 

@@ -1,13 +1,29 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree. An additional grant
 # of patent rights can be found in the PATENTS file in the same directory.
+"""General utility code for building PyTorch-based agents in ParlAI.
+
+Contains the following main utilities:
+
+* TorchAgent class which serves as a useful parent class for other model agents
+* Batch namedtuple which is the input type of the main abstract methods of
+  the TorchAgent class
+* Output namedtuple which is the expected output type of the main abstract
+  methods of the TorchAgent class
+* Beam class which provides some generic beam functionality for classes to use
+
+See below for documentation on each specific tool.
+"""
 
 from parlai.core.agents import Agent
 from parlai.core.build_data import modelzoo_path
 from parlai.core.dict import DictionaryAgent
-from parlai.core.utils import set_namedtuple_defaults, argsort, padded_tensor
+from parlai.core.utils import (set_namedtuple_defaults, argsort, padded_tensor,
+                               NEAR_INF)
 
 try:
     import torch
@@ -16,7 +32,7 @@ except ImportError as e:
 
 
 from torch import optim
-from collections import deque, namedtuple
+from collections import deque, namedtuple, Counter
 import pickle
 import random
 import math
@@ -139,10 +155,15 @@ class TorchAgent(Agent):
                  'ignored unless you append "-force" to your choice.')
         # optimizer arguments
         agent.add_argument(
-            '-opt', '--optimizer', default='sgd',
-            choices=cls.OPTIM_OPTS,
+            '-opt', '--optimizer', default='sgd', choices=cls.OPTIM_OPTS,
             help='Choose between pytorch optimizers. Any member of torch.optim'
                  ' should be valid.')
+        agent.add_argument(
+            '-lr', '--learningrate', type=float, default=1,
+            help='learning rate')
+        agent.add_argument(
+            '-clip', '--gradient-clip', type=float, default=0.1,
+            help='gradient clipping using l2 norm')
         agent.add_argument(
             '-mom', '--momentum', default=0, type=float,
             help='if applicable, momentum value for optimizer.')
@@ -173,7 +194,7 @@ class TorchAgent(Agent):
             help='Suggest model should employ multiple GPUs. Not all models '
                  'respect this flag.')
         gpugroup.add_argument(
-            '--no-cuda', type='bool', default=False,
+            '--no-cuda', default=False, action='store_true', dest='no_cuda',
             help='disable GPUs even if available. otherwise, will use GPUs if '
                  'available on the device.')
 
@@ -213,7 +234,7 @@ class TorchAgent(Agent):
 
         # now set up any fields that all instances may need
         self.id = 'TorchAgent'  # child can override
-        self.EMPTY = torch.Tensor([])
+        self.EMPTY = torch.LongTensor([])
         self.NULL_IDX = self.dict[self.dict.null_token]
         self.START_IDX = self.dict[self.dict.start_token]
         self.END_IDX = self.dict[self.dict.end_token]
@@ -276,6 +297,17 @@ class TorchAgent(Agent):
         # TODO: Move scheduler params to command line args
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, 'min', factor=0.5, patience=3, verbose=True)
+
+    def receive_metrics(self, metrics_dict):
+        """Use the metrics to decide when to adjust LR schedule.
+
+        This uses the loss as the validation metric if present, if not this
+        function does nothing. Note that the model must be reporting loss for
+        this to work.
+        Override this to override the behavior.
+        """
+        if 'loss' in metrics_dict:
+            self.scheduler.step(metrics_dict['loss'])
 
     def _get_embtype(self, emb_type):
         # set up preinitialized embeddings
@@ -376,6 +408,17 @@ class TorchAgent(Agent):
         shared['replies'] = self.replies
         return shared
 
+    def _v2t(self, vec):
+        """Convert token indices to string of tokens."""
+        new_vec = []
+        if hasattr(vec, 'cpu'):
+            vec = vec.cpu()
+        for i in vec:
+            if i == self.END_IDX:
+                break
+            new_vec.append(i)
+        return self.dict.vec2txt(new_vec)
+
     def _vectorize_text(self, text, add_start=False, add_end=False,
                         truncate=None, truncate_left=True):
         """Return vector from text.
@@ -420,6 +463,82 @@ class TorchAgent(Agent):
         else:
             return vec[:truncate]
 
+    def _set_text_vec(self, obs, truncate, split_lines):
+        """Sets the 'text_vec' field in the observation.
+
+        Useful to override to change vectorization behavior"""
+
+        if 'text_vec' in obs:
+            # check truncation of pre-computed vectors
+            obs['text_vec'] = self._check_truncate(obs['text_vec'], truncate)
+            if split_lines and 'memory_vecs' in obs:
+                obs['memory_vecs'] = [self._check_truncate(m, truncate)
+                                      for m in obs['memory_vecs']]
+        elif 'text' in obs:
+            # convert 'text' into tensor of dictionary indices
+            # we don't add start and end to the input
+            if split_lines:
+                # if split_lines set, we put most lines into memory field
+                obs['memory_vecs'] = []
+                for line in obs['text'].split('\n'):
+                    obs['memory_vecs'].append(
+                        self._vectorize_text(line, truncate=truncate))
+                # the last line is treated as the normal input
+                obs['text_vec'] = obs['memory_vecs'].pop()
+            else:
+                obs['text_vec'] = self._vectorize_text(obs['text'],
+                                                       truncate=truncate)
+        return obs
+
+    def _set_label_vec(self, obs, add_start, add_end, truncate):
+        """Sets the 'labels_vec' field in the observation.
+
+        Useful to override to change vectorization behavior"""
+
+        # convert 'labels' or 'eval_labels' into vectors
+        if 'labels' in obs:
+            label_type = 'labels'
+        elif 'eval_labels' in obs:
+            label_type = 'eval_labels'
+        else:
+            label_type = None
+
+        if label_type is None:
+            return
+
+        elif label_type + '_vec' in obs:
+            # check truncation of pre-computed vector
+            obs[label_type + '_vec'] = self._check_truncate(
+                obs[label_type + '_vec'], truncate)
+        else:
+            # pick one label if there are multiple
+            lbls = obs[label_type]
+            label = lbls[0] if len(lbls) == 1 else self.random.choice(lbls)
+            vec_label = self._vectorize_text(label, add_start, add_end,
+                                             truncate, False)
+            obs[label_type + '_vec'] = vec_label
+            obs[label_type + '_choice'] = label
+
+        return obs
+
+    def _set_label_cands_vec(self, obs, add_start, add_end, truncate):
+        """Sets the 'label_candidates_vec' field in the observation.
+
+        Useful to override to change vectorization behavior"""
+
+        if 'label_candidates_vecs' in obs:
+            if truncate is not None:
+                # check truncation of pre-computed vectors
+                vecs = obs['label_candidates_vecs']
+                for i, c in enumerate(vecs):
+                    vecs[i] = self._check_truncate(c, truncate)
+        elif self.rank_candidates and 'label_candidates' in obs:
+            obs['label_candidates'] = list(obs['label_candidates'])
+            obs['label_candidates_vecs'] = [
+                self._vectorize_text(c, add_start, add_end, truncate, False)
+                for c in obs['label_candidates']]
+        return obs
+
     def vectorize(self, obs, add_start=True, add_end=True, truncate=None,
                   split_lines=False):
         """Make vectors out of observation fields and store in the observation.
@@ -443,62 +562,9 @@ class TorchAgent(Agent):
                             vector for input text, one for each substring after
                             splitting on newlines.
         """
-        if 'text_vec' in obs:
-            # check truncation of pre-computed vectors
-            obs['text_vec'] = self._check_truncate(obs['text_vec'], truncate)
-            if split_lines and 'memory_vecs' in obs:
-                obs['memory_vecs'] = [self._check_truncate(m, truncate)
-                                      for m in obs['memory_vecs']]
-        elif 'text' in obs:
-            # convert 'text' into tensor of dictionary indices
-            # we don't add start and end to the input
-            if split_lines:
-                # if split_lines set, we put most lines into memory field
-                obs['memory_vecs'] = []
-                for line in obs['text'].split('\n'):
-                    obs['memory_vecs'].append(
-                        self._vectorize_text(line, truncate=truncate))
-                # the last line is treated as the normal input
-                obs['text_vec'] = obs['memory_vecs'].pop()
-            else:
-                obs['text_vec'] = self._vectorize_text(obs['text'],
-                                                       truncate=truncate)
-
-        # convert 'labels' or 'eval_labels' into vectors
-        if 'labels' in obs:
-            label_type = 'labels'
-        elif 'eval_labels' in obs:
-            label_type = 'eval_labels'
-        else:
-            label_type = None
-
-        if label_type is None:
-            pass
-        elif label_type + '_vec' in obs:
-            # check truncation of pre-computed vector
-            obs[label_type + '_vec'] = self._check_truncate(
-                obs[label_type + '_vec'], truncate)
-        else:
-            # pick one label if there are multiple
-            lbls = obs[label_type]
-            label = lbls[0] if len(lbls) == 1 else self.random.choice(lbls)
-            vec_label = self._vectorize_text(label, add_start, add_end,
-                                             truncate, False)
-            obs[label_type + '_vec'] = vec_label
-            obs[label_type + '_choice'] = label
-
-        if 'label_candidates_vecs' in obs:
-            if truncate is not None:
-                # check truncation of pre-computed vectors
-                vecs = obs['label_candidates_vecs']
-                for i, c in enumerate(vecs):
-                    vecs[i] = self._check_truncate(c, truncate)
-        elif self.rank_candidates and 'label_candidates' in obs:
-            obs['label_candidates'] = list(obs['label_candidates'])
-            obs['label_candidates_vecs'] = [
-                self._vectorize_text(c, add_start, add_end, truncate, False)
-                for c in obs['label_candidates']]
-
+        self._set_text_vec(obs, truncate, split_lines)
+        self._set_label_vec(obs, add_start, add_end, truncate)
+        self._set_label_cands_vec(obs, add_start, add_end, truncate)
         return obs
 
     def batchify(self, obs_batch, sort=False,
@@ -755,7 +821,7 @@ class TorchAgent(Agent):
         states = torch.load(path, map_location=lambda cpu, _: cpu)
         if 'model' in states:
             self.model.load_state_dict(states['model'])
-        if 'optimizer' in states:
+        if 'optimizer' in states and hasattr(self, 'optimizer'):
             self.optimizer.load_state_dict(states['optimizer'])
         return states
 
@@ -819,7 +885,7 @@ class Beam(object):
     """Generic beam class. It keeps information about beam_size hypothesis."""
 
     def __init__(self, beam_size, min_length=3, padding_token=0, bos_token=1,
-                 eos_token=2, min_n_best=3, cuda='cpu'):
+                 eos_token=2, min_n_best=3, cuda='cpu', block_ngram=0):
         """Instantiate Beam object.
 
         :param beam_size: number of hypothesis in the beam
@@ -846,7 +912,7 @@ class Beam(object):
         self.bookkeep = []
         # output tokens at each time step
         self.outputs = [torch.Tensor(self.beam_size).long()
-                        .fill_(padding_token).to(self.device)]
+                        .fill_(self.bos).to(self.device)]
         # keeps tuples (score, time_step, hyp_id)
         self.finished = []
         self.HypothesisTail = namedtuple(
@@ -855,15 +921,29 @@ class Beam(object):
         self.eos_top_ts = None
         self.n_best_counter = 0
         self.min_n_best = min_n_best
+        self.block_ngram = block_ngram
+
+    @staticmethod
+    def find_ngrams(input_list, n):
+        """Get list of ngrams with context length n-1"""
+        return list(zip(*[input_list[i:] for i in range(n)]))
 
     def get_output_from_current_step(self):
+        """Get the outputput at the current step."""
         return self.outputs[-1]
 
     def get_backtrack_from_current_step(self):
+        """Get the backtrack at the current step."""
         return self.bookkeep[-1]
 
     def advance(self, softmax_probs):
+        """Advance the beam one step."""
         voc_size = softmax_probs.size(-1)
+        current_length = len(self.all_scores) - 1
+        if current_length < self.min_length:
+            # penalize all eos probs to make it decode longer
+            for hyp_id in range(softmax_probs.size(0)):
+                softmax_probs[hyp_id][self.eos] = -NEAR_INF
         if len(self.bookkeep) == 0:
             # the first step we take only the first hypo into account since all
             # hypos are the same initially
@@ -874,11 +954,25 @@ class Beam(object):
             beam_scores = (softmax_probs +
                            self.scores.unsqueeze(1).expand_as(softmax_probs))
             for i in range(self.outputs[-1].size(0)):
+                current_hypo = [ii.tokenid.item() for ii in
+                                self.get_partial_hyp_from_tail(
+                                len(self.outputs) - 1, i)][::-1][1:]
+                if self.block_ngram > 0:
+                    current_ngrams = []
+                    for ng in range(self.block_ngram):
+                        ngrams = Beam.find_ngrams(current_hypo, ng)
+                        if len(ngrams) > 0:
+                            current_ngrams.extend(ngrams)
+                    counted_ngrams = Counter(current_ngrams)
+                    if any(v > 1 for k, v in counted_ngrams.items()):
+                        # block this hypothesis hard
+                        beam_scores[i] = -NEAR_INF
+
                 #  if previous output hypo token had eos
                 # we penalize those word probs to never be chosen
                 if self.outputs[-1][i] == self.eos:
                     # beam_scores[i] is voc_size array for i-th hypo
-                    beam_scores[i] = -1e20
+                    beam_scores[i] = -NEAR_INF
 
         flatten_beam_scores = beam_scores.view(-1)  # [beam_size * voc_size]
         with torch.no_grad():
@@ -912,6 +1006,7 @@ class Beam(object):
                 self.eos_top_ts = len(self.outputs) - 1
 
     def done(self):
+        """Return whether beam search is complete."""
         return self.eos_top and self.n_best_counter >= self.min_n_best
 
     def get_top_hyp(self):
@@ -943,7 +1038,9 @@ class Beam(object):
 
         return hyp_idx
 
-    def get_pretty_hypothesis(self, list_of_hypotails):
+    @staticmethod
+    def get_pretty_hypothesis(list_of_hypotails):
+        """Return prettier version of the hypotheses."""
         hypothesis = []
         for i in list_of_hypotails:
             hypothesis.append(i.tokenid)
@@ -952,8 +1049,26 @@ class Beam(object):
 
         return hypothesis
 
+    def get_partial_hyp_from_tail(self, ts, hypid):
+        hypothesis_tail = self.HypothesisTail(
+            timestep=ts,
+            hypid=torch.Tensor([hypid]).long(),
+            score=self.all_scores[ts][hypid],
+            tokenid=self.outputs[ts][hypid])
+        hyp_idx = []
+        endback = hypothesis_tail.hypid
+        for i in range(hypothesis_tail.timestep, -1, -1):
+            hyp_idx.append(self.HypothesisTail(
+                timestep=i,
+                hypid=endback,
+                score=self.all_scores[i][endback],
+                tokenid=self.outputs[i][endback]))
+            endback = self.bookkeep[i - 1][endback]
+
+        return hyp_idx
+
     def get_rescored_finished(self, n_best=None):
-        """
+        """Return finished hypotheses in rescored order.
 
         :param n_best: how many n best hypothesis to return
         :return: list with hypothesis
@@ -977,7 +1092,7 @@ class Beam(object):
         return srted
 
     def check_finished(self):
-        """Checks if self.finished is empty and add hyptail in that case.
+        """Check if self.finished is empty and add hyptail in that case.
 
         This will be suboptimal hypothesis since the model did not get any EOS
 
@@ -996,7 +1111,7 @@ class Beam(object):
             self.finished.append(hyptail)
 
     def get_beam_dot(self, dictionary=None, n_best=None):
-        """Creates pydot graph representation of the beam.
+        """Create pydot graph representation of the beam.
 
         :param outputs: self.outputs from the beam
         :param dictionary: tok 2 word dict to save words in the tree nodes

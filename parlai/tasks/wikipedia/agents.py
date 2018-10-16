@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -57,11 +59,14 @@ class FullTeacher(DialogTeacher):
         '''If one wants to run extraction themselves on a raw wikipedia dump'''
         dpath = os.path.join(self.opt['datapath'], 'wikipedia', 'full')
         fname = 'enwiki-latest-pages-articles.xml.bz2'
-        instructions = """
-        To complete the data extraction, please run the following:
-        \n
-        mkdir -p {download}  && git clone https://github.com/attardi/wikiextractor  {download}/wikiextract && cd {download}/wikiextract && python WikiExtractor.py {wikifile} --filter_disambig_pages -o {output} --json
-        """.format(
+        instructions = (
+            "To complete the data extraction, please run the following:\n"
+            "mkdir -p {download} && "
+            "git clone https://github.com/attardi/wikiextractor "
+            "{download}/wikiextract && cd {download}/wikiextract && "
+            "python WikiExtractor.py {wikifile} --filter_disambig_pages "
+            "-o {output} --json"
+        ).format(
             download=self.opt['download_path'],
             wikifile=dpath + '/' + fname,
             output=dpath + '/' + 'wiki_extracted'

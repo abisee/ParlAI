@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -54,7 +56,9 @@ class DefaultTeacher(DialogTeacher):
             ques = json.loads(line)
 
             image_path = os.path.join(self.images_path, ques['directory'])
-            image_file_names = glob.glob(image_path + '/' + self.dt + '-' + ques['identifier'] + '*')
+            image_file_names = glob.glob(
+                image_path + '/' + self.dt + '-' + ques['identifier'] + '*'
+            )
 
             question = "True or False: " + ques['sentence']
             answer = [ques['label']] if self.dt != 'test' else None

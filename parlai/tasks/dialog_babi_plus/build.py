@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -21,7 +23,10 @@ def build(opt):
             build_data.remove_dir(dpath)
         build_data.make_dir(dpath)
 
-        url = "https://drive.google.com/uc?export=download&id=0B2MvoQfXtqZmMTJqclpBdGN2bmc"
+        url = (
+            "https://drive.google.com/uc?"
+            "export=download&id=0B2MvoQfXtqZmMTJqclpBdGN2bmc"
+        )
         build_data.download(url, dpath, fname)
         build_data.untar(dpath, fname)
 

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -86,9 +88,9 @@ class DocReaderModel(object):
 
         # Transfer to GPU
         if self.opt['cuda']:
-            inputs = [Variable(e.cuda(async=True)) for e in ex[:5]]
-            target_s = Variable(ex[5].cuda(async=True))
-            target_e = Variable(ex[6].cuda(async=True))
+            inputs = [Variable(e.cuda(non_blocking=True)) for e in ex[:5]]
+            target_s = Variable(ex[5].cuda(non_blocking=True))
+            target_e = Variable(ex[6].cuda(non_blocking=True))
         else:
             inputs = [Variable(e) for e in ex[:5]]
             target_s = Variable(ex[5])
@@ -122,7 +124,7 @@ class DocReaderModel(object):
 
         # Transfer to GPU
         if self.opt['cuda']:
-            inputs = [Variable(e.cuda(async=True), volatile=True)
+            inputs = [Variable(e.cuda(non_blocking=True), volatile=True)
                       for e in ex[:5]]
         else:
             inputs = [Variable(e, volatile=True) for e in ex[:5]]

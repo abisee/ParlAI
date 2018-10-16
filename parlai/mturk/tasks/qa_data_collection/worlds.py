@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -8,6 +10,9 @@ from parlai.mturk.core.worlds import MTurkOnboardWorld, MTurkTaskWorld
 
 
 class QADataCollectionOnboardWorld(MTurkOnboardWorld):
+    '''Example onboarding world. Sends a message from the world to the
+    worker and then exits as complete
+    '''
     def parley(self):
         ad = {}
         ad['id'] = 'System'
@@ -66,19 +71,20 @@ class QADataCollectionWorld(MTurkTaskWorld):
 
             self.mturk_agent.observe(validate(ad))
             self.answer = self.mturk_agent.act()
-            # Can log the turker's answer here
 
             self.episodeDone = True
 
     def episode_done(self):
         return self.episodeDone
 
-    def report(self):
-        pass
-
     def shutdown(self):
         self.task.shutdown()
         self.mturk_agent.shutdown()
 
     def review_work(self):
+        # Can review the work here to accept or reject it
+        pass
+
+    def save_data(self):
+        # should save self.question and self.answer to a file
         pass

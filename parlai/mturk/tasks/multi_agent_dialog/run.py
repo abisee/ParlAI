@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -96,6 +98,7 @@ def main():
     finally:
         mturk_manager.expire_all_unassigned_hits()
         mturk_manager.shutdown()
+
 
 if __name__ == '__main__':
     main()

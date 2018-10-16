@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -5,9 +7,16 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 """Run the python or pytorch profiler and prints the results.
 
-For example, to make sure that bAbI task 1 (1k exs) loads one can run and to
+
+Examples
+--------
+
+To make sure that bAbI task 1 (1k exs) loads one can run and to
 see a few of them:
-`python examples/profile.py -t babi:task1k:1 -m seq2seq -e 0.1 --dict-file /tmp/dict`'
+
+.. code-block:: shell
+
+  python examples/profile.py -t babi:task1k:1 -m seq2seq -e 0.1 --dict-file /tmp/dict
 """
 
 from parlai.core.params import ParlaiParser
@@ -26,15 +35,21 @@ except ImportError:
 
 def setup_args(parser=None):
     if parser is None:
-        parser = ParlaiParser(True, True)
+        parser = ParlaiParser(True, True, 'cProfile a training run')
     parser = train_args(parser)
     profile = parser.add_argument_group('Profiler Arguments')
-    profile.add_argument('--torch', type='bool', default=False,
-        help='If true, use the torch profiler. Otherwise use cProfile.')
-    profile.add_argument('--torch-cuda', type='bool', default=False,
-        help='If true, use the torch cuda profiler. Otherwise use cProfile.')
-    profile.add_argument('--debug', type='bool', default=False,
-        help='If true, enter debugger at end of run.')
+    profile.add_argument(
+        '--torch', type='bool', default=False,
+        help='If true, use the torch profiler. Otherwise use cProfile.'
+    )
+    profile.add_argument(
+        '--torch-cuda', type='bool', default=False,
+        help='If true, use the torch cuda profiler. Otherwise use cProfile.'
+    )
+    profile.add_argument(
+        '--debug', type='bool', default=False,
+        help='If true, enter debugger at end of run.'
+    )
     return parser
 
 

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -2217,7 +2219,7 @@ class PersonachatSeqseqAgentSplit(Agent):
                 if self.use_cuda:
                     # copy to gpu
                     self.zs.resize_(zs.size())
-                    self.zs.copy_(zs, async=True)
+                    self.zs.copy_(zs, non_blocking=True)
                     zs = Variable(self.zs)
                 else:
                     zs = Variable(zs)

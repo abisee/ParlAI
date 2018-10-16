@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -8,7 +10,13 @@ Used for verification of data loading and iteration.
 
 For example, to make sure that bAbI task 1 (1k exs) loads one can run and to
 see a few of them:
-`python display_data.py -t babi:task1k:1`
+
+Examples
+--------
+
+.. code-block:: shell
+
+  python display_data.py -t babi:task1k:1
 """
 
 from parlai.core.params import ParlaiParser
@@ -20,7 +28,7 @@ import random
 
 def setup_args(parser=None):
     if parser is None:
-        parser = ParlaiParser(True, True)
+        parser = ParlaiParser(True, True, 'Display data from a task')
     # Get command line arguments
     parser.add_argument('-ne', '--num_examples', type=int, default=10)
     parser.add_argument('-mdl', '--max_display_len', type=int, default=1000)
@@ -51,7 +59,7 @@ def display_data(opt):
         print('[ loaded {} episodes with a total of {} examples ]'.format(
             world.num_episodes(), world.num_examples()
         ))
-    except:
+    except Exception:
         pass
 
 

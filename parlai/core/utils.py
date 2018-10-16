@@ -1,8 +1,11 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree. An additional grant
 # of patent rights can be found in the PATENTS file in the same directory.
+"""File for miscellaneous utility functions and constants."""
 
 from collections import deque
 import math
@@ -16,6 +19,10 @@ try:
     __TORCH_AVAILABLE = True
 except ImportError:
     __TORCH_AVAILABLE = False
+
+
+"""Near infinity, useful as a large penalty for scoring when inf is bad."""
+NEAR_INF = 1e20
 
 
 DISPLAY_MESSAGE_DEFAULT_FIELDS = {
@@ -38,9 +45,13 @@ def maintain_dialog_history(history, observation, reply='',
                             historyLength=1, useReplies='label_else_model',
                             dict=None, useStartEndIndices=True,
                             splitSentences=False):
-    """Keeps track of dialog history, up to a truncation length.
-    Either includes replies from the labels, model, or not all using param 'replies'."""
+    """Keep track of dialog history, up to a truncation length.
 
+    Either includes replies from the labels, model, or not all using param
+    'replies'.
+
+    DEPRECATED. USE PARLAI.CORE.TORCH_AGENT INSTEAD.
+    """
     def parse(txt, splitSentences):
         if dict is not None:
             if splitSentences:
@@ -92,9 +103,11 @@ def maintain_dialog_history(history, observation, reply='',
 
 
 def load_cands(path, lines_have_ids=False, cands_are_replies=False):
-    """Load global fixed set of candidate labels that the teacher provides
-    every example (the true labels for a specific example are also added to
-    this set, so that it's possible to get the right answer).
+    """Load global fixed set of candidate labels that the teacher provides.
+
+    Every example will include these as candidates. The true labels for a
+    specific example are also added to this set, so that it's possible to get
+    the right answer.
     """
     if path is None:
         return None
@@ -127,17 +140,17 @@ def load_cands(path, lines_have_ids=False, cands_are_replies=False):
 
 
 class Predictor(object):
-    """Provides functionality for setting up a running version of a model and
-    requesting predictions from that model on live data.
+    """Wrapper to set up running version of model and request predictions.
 
     Note that this maintains no World state (does not use a World), merely
     providing the observation directly to the model and getting a response.
 
-    This is limiting when it comes to certain use cases, but is
+    This is limiting when it comes to certain use cases, but allows for quick
+    model deployment.
     """
 
     def __init__(self, args=None, **kwargs):
-        """Initializes the predictor, setting up opt automatically if necessary.
+        """Initialize the predictor, setting up opt automatically if needed.
 
         Args is expected to be in the same format as sys.argv: e.g. a list in
         the form ['--model', 'seq2seq', '-hs', 128, '-lr', 0.5].
@@ -159,9 +172,7 @@ class Predictor(object):
         self.agent = create_agent(self.opt)
 
     def predict(self, observation):
-        """From a ParlAI-standard observation dict, returns a prediction from
-        the model.
-        """
+        """From a ParlAI-standard message dict, get model prediction."""
         if 'episode_done' not in observation:
             observation['episode_done'] = True
         self.agent.observe(observation)
@@ -171,47 +182,71 @@ class Predictor(object):
 
 class Timer(object):
     """Computes elapsed time."""
+
     def __init__(self):
+        """Initialize timer."""
         self.running = True
         self.total = 0
         self.start = time.time()
 
     def reset(self):
+        """Reset timer to zero."""
         self.running = True
         self.total = 0
         self.start = time.time()
         return self
 
     def resume(self):
+        """Resume timer."""
         if not self.running:
             self.running = True
             self.start = time.time()
         return self
 
     def stop(self):
+        """Pause timer."""
         if self.running:
             self.running = False
             self.total += time.time() - self.start
         return self
 
     def time(self):
+        """Get current timer time."""
         if self.running:
             return self.total + time.time() - self.start
         return self.total
 
 
 class TimeLogger():
+    """Class for logging time progress against a goal."""
+
     def __init__(self):
+        """Set up timer."""
         self.timer = Timer()
         self.tot_time = 0
 
     def total_time(self):
+        """Return time elapsed at last log call."""
         return self.tot_time
 
     def time(self):
+        """Return current timer time."""
         return self.timer.time()
 
-    def log(self, done, total, report={}):
+    def log(self, done, total, report=None):
+        """Log report, time elapsed, and percentage progress towards goal.
+
+        :param done: number of examples completed so far
+        :param total: total number of elements to be completed. if total > 0,
+                      calculates the time remaining and percentage complete.
+        :param report: dict of pairs to log
+
+        :returns: tuple log string, log dict
+            log string contains time elapsed and string representation of
+            the log dict
+            log dict contains pairs of all items to log, which includes
+            percentage complete and projected time left if total > 0
+        """
         self.tot_time += self.timer.time()
         self.timer.reset()
         log = {}
@@ -223,9 +258,10 @@ class TimeLogger():
                 log['time_left'] = str(int(time_left)) + 's'
             z = '%.2f' % (100 * log['%done'])
             log['%done'] = str(z) + '%'
-        for k, v in report.items():
-            if k not in log:
-                log[k] = v
+        if report:
+            for k, v in report.items():
+                if k not in log:
+                    log[k] = v
         text = str(int(self.tot_time)) + "s elapsed: " + str(log)
         return text, log
 
@@ -241,12 +277,21 @@ class AttrDict(dict):
     set the key `items` or you will lose access to the `items()` method), this
     can make some code more clear.
     """
+
     def __init__(self, *args, **kwargs):
+        """Initialize AttrDict using input dict."""
         super().__init__(*args, **kwargs)
         self.__dict__ = self
 
 
 def round_sigfigs(x, sigfigs=4):
+    """Round value to specified significant figures.
+
+    :param x: input number
+    :param sigfigs: number of significant figures to return
+
+    :returns: float number rounded to specified sigfigs
+    """
     try:
         if x == 0:
             return 0
@@ -266,11 +311,12 @@ def round_sigfigs(x, sigfigs=4):
 
 
 def flatten(teacher, context_length=-1, include_labels=True):
-    """Return a flattened version of a teacher's data where all episodes only
-    have length one but contain the desired amount of context.
+    """Return a flattened version of a teacher's data.
+
+    All episodes will have length 1 but contain the desired amount of context.
 
     If context_length is not -1, will use only that many past utterances.
-    Default is -1. Setting it to one only uses the input text.
+    Default is -1, full past. Setting it to one only uses the input text.
 
     If include_labels is True, will include a random label in past utterances.
     Default is True.
@@ -357,10 +403,13 @@ def make_batches(data, bsz):
 
 class NoLock(object):
     """Empty `lock`. Does nothing when you enter or exit."""
+
     def __enter__(self):
+        """No-op."""
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
+        """No-op."""
         pass
 
 
@@ -368,21 +417,25 @@ single_nolock = NoLock()
 
 
 def no_lock():
-    """Builds a nolock for other classes to use for no-op locking."""
+    """Build a nolock for other classes to use for no-op locking."""
     return single_nolock
 
 
 class ProgressLogger(object):
-    """
-    Throttles and display progress in human readable form.
-    Default throttle speed is 1 sec
-    """
+    """Throttles and display progress in human readable form."""
+
     def __init__(self, throttle=1, should_humanize=True):
+        """Initialize Progress logger.
+
+        :param throttle: default 1, number in seconds to use as throttle rate
+        :param should_humanize: default True, whether to humanize data units
+        """
         self.latest = time.time()
         self.throttle_speed = throttle
         self.should_humanize = should_humanize
 
     def humanize(self, num, suffix='B'):
+        """Convert units to more human-readable format."""
         if num < 0:
             return num
         for unit in ['', 'Ki', 'Mi', 'Gi', 'Ti', 'Pi', 'Ei', 'Zi']:
@@ -392,7 +445,7 @@ class ProgressLogger(object):
         return "%.1f%s%s" % (num, 'Yi', suffix)
 
     def log(self, curr, total, width=40, force=False):
-        """Displays a bar showing the current progress."""
+        """Display a bar showing the current progress."""
         if curr == 0 and total == -1:
             print('[ no data received for this file ]', end='\r')
             return
@@ -420,20 +473,27 @@ class ProgressLogger(object):
 
 
 class PaddingUtils(object):
+    """Helps with padding input and target tensors.
+
+    DEPRECATED. USE PARLAI.CORE.TORCH_AGENT INSTEAD.
     """
-    Class that contains functions that help with padding input and target tensors.
-    """
+
     @classmethod
     def pad_text(cls, observations, dictionary,
                  end_idx=None, null_idx=0, dq=False, eval_labels=True,
                  truncate=None):
-        """We check that examples are valid, pad with zeros, and sort by length
-           so that we can use the pack_padded function. The list valid_inds
-           keeps track of which indices are valid and the order in which we sort
-           the examples.
-           dq -- whether we should use deque or list
-           eval_labels -- whether or not we want to consider eval labels
-           truncate -- truncate input and output lengths
+        """Pad observations to max width.
+
+        We check that examples are valid, pad with zeros, and sort by length
+        so that we can use the pack_padded function. The list valid_inds
+        keeps track of which indices are valid and the order in which we sort
+        the examples.
+
+        dq -- whether we should use deque or list
+        eval_labels -- whether or not we want to consider eval labels
+        truncate -- truncate input and output lengths
+
+        DEPRECATED. USE PARLAI.CORE.TORCH_AGENT INSTEAD.
         """
         def valid(obs):
             # check if this is an example our model should actually process
@@ -527,9 +587,14 @@ class PaddingUtils(object):
     def map_predictions(cls, predictions, valid_inds, batch_reply,
                         observations, dictionary, end_idx, report_freq=0.1,
                         labels=None, answers=None, ys=None):
-        """Predictions are mapped back to appropriate indices in the batch_reply
-           using valid_inds.
-           report_freq -- how often we report predictions
+        """Match predictions to original index in the batch.
+
+        Predictions are mapped back to appropriate indices in the batch_reply
+        using valid_inds.
+
+        report_freq -- how often we report predictions
+
+        DEPRECATED. USE PARLAI.CORE.TORCH_AGENT INSTEAD.
         """
         for i in range(len(predictions)):
             # map the predictions back to non-empty examples in the batch
@@ -565,11 +630,14 @@ class PaddingUtils(object):
 
 
 class OffensiveLanguageDetector(object):
-    """Detects offensive language using a list of offensive language and phrases
+    """Tries to detect offensive language in text.
+
+    Detects offensive language using a list of offensive language and phrases
     from https://github.com/LDNOOBW.
     """
 
     def __init__(self):
+        """Get data from external sources and build data representation."""
         import parlai.core.build_data as build_data
         from parlai.core.params import ParlaiParser
         from parlai.core.dict import DictionaryAgent
@@ -608,14 +676,28 @@ class OffensiveLanguageDetector(object):
         # store a token trie: e.g.
         # {'2': {'girls': {'1': {'cup': {'__END__': True}}}}
         self.END = '__END__'
-        self.offensive_trie = {}
         self.max_len = 1
+        self.offensive_trie = {}
+        self.word_prefixes = ['de', 'de-', 'dis', 'dis-', 'ex', 'ex-', 'mis',
+                              'mis-', 'pre', 'pre-', 'non', 'non-', 'semi',
+                              'semi-', 'sub', 'sub-', 'un', 'un-']
+        self.word_suffixes = ['a', 'able', 'as', 'dom', 'ed', 'er', 'ers',
+                              'ery', 'es', 'est', 'ful', 'fy', 'ies', 'ify',
+                              'in', 'ing', 'ish', 'less', 'ly', 's', 'y']
+        self.white_list = ['butter', 'buttery', 'spicy', 'spiced', 'spices',
+                           'spicier', 'spicing', 'twinkies']
+
         with open(self.datafile, 'r') as f:
             for p in f.read().splitlines():
-                self.add_phrase(p)
+                mod_ps = [p]
+                mod_ps += [pref + p for pref in self.word_prefixes]
+                mod_ps += [p + suff for suff in self.word_suffixes]
+                for mod_p in mod_ps:
+                    if mod_p not in self.white_list:
+                        self.add_phrase(mod_p)
 
     def add_phrase(self, phrase):
-        """Adds a single phrase to the trie."""
+        """Add a single phrase to the filter."""
         toks = self.tokenize(phrase)
         curr = self.offensive_trie
         for t in toks:
@@ -630,7 +712,7 @@ class OffensiveLanguageDetector(object):
         for phrase in phrase_list:
             self.add_phrase(phrase)
 
-    def check_sequence(self, toks, idx, node):
+    def _check_sequence(self, toks, idx, node):
         """Check if words from the sequence are in the trie.
 
         This checks phrases made from
@@ -647,21 +729,26 @@ class OffensiveLanguageDetector(object):
         return False
 
     def contains_offensive_language(self, text):
-        """Determines if text contains any offensive words from the list."""
+        """Determine if text contains any offensive words in the filter."""
         if type(text) is str:
             toks = self.tokenize(text.lower())
         elif type(text) is list or type(text) is tuple:
             toks = text
 
         for i in range(len(toks)):
-            res = self.check_sequence(toks, i, self.offensive_trie)
+            res = self._check_sequence(toks, i, self.offensive_trie)
             if res:
                 return res
 
         return None
 
+    def __contains__(self, key):
+        """Determine if text contains any offensive words in the filter."""
+        return self.contains_offensive_language(key)
+
 
 def clip_text(text, max_len):
+    """Clip text to max length, adding ellipses."""
     if len(text) > max_len:
         begin_text = ' '.join(
             text[:math.floor(0.8 * max_len)].split(' ')[:-1]
@@ -677,8 +764,7 @@ def clip_text(text, max_len):
 
 
 def _ellipse(lst, max_display=5, sep='|'):
-    """
-    Like join, but possibly inserts an ellipsis.
+    """Like join, but possibly inserts an ellipsis.
 
     :param lst: The list to join on
     :param int max_display: the number of items to display for ellipsing.
@@ -691,13 +777,15 @@ def _ellipse(lst, max_display=5, sep='|'):
     if max_display > 0 and len(choices) > max_display:
         ellipsis = '...and {} more'.format(len(choices) - max_display)
         choices = choices[:max_display] + [ellipsis]
-    return sep.join(choices)
+    return sep.join(str(c) for c in choices)
 
 
 def display_messages(msgs, prettify=False, ignore_fields='', max_len=1000):
-    """Returns a string describing the set of messages provided
+    """Return a string describing the set of messages provided.
+
     If prettify is true, candidates are displayed using prettytable.
-    ignore_fields provides a list of fields in the msgs which should not be displayed.
+    ignore_fields provides a list of fields in the msgs which should not be
+    displayed.
     """
     lines = []
     episode_done = False
@@ -718,7 +806,10 @@ def display_messages(msgs, prettify=False, ignore_fields='', max_len=1000):
             lines.append(space + '[reward: {r}]'.format(r=msg['reward']))
         for key in msg:
             if key not in DISPLAY_MESSAGE_DEFAULT_FIELDS and key not in ignore_fields:
-                line = '[' + key + ']: ' + clip_text(str(msg.get(key)), max_len)
+                if type(msg[key]) is list:
+                    line = '[' + key + ']:\n  ' + _ellipse(msg[key], sep='\n  ')
+                else:
+                    line = '[' + key + ']: ' + clip_text(str(msg.get(key)), max_len)
                 lines.append(space + line)
         if type(msg.get('image')) == str:
             lines.append(msg['image'])
@@ -826,8 +917,8 @@ def msg_to_str(msg, ignore_fields=''):
 
 
 def set_namedtuple_defaults(namedtuple, default=None):
-    """
-    Set *all* of the fields for a given nametuple to a singular value.
+    """Set *all* of the fields for a given nametuple to a singular value.
+
     Modifies the tuple in place, but returns it anyway.
 
     More info:
@@ -835,7 +926,8 @@ def set_namedtuple_defaults(namedtuple, default=None):
 
     :param namedtuple: A constructed collections.namedtuple
     :param default: The default value to set.
-    :return: the modified namedtuple
+
+    :returns: the modified namedtuple
     """
     namedtuple.__new__.__defaults__ = (default,) * len(namedtuple._fields)
     return namedtuple
@@ -858,7 +950,7 @@ def padded_tensor(items, pad_idx=0, use_cuda=False, left_padded=False):
     :param bool use_cuda: if true, places `padded` on GPU
     :param bool left_padded:
 
-    :return: (padded, lengths) tuple
+    :returns: (padded, lengths) tuple
     :rtype: (Tensor[int64], list[int])
     """
     # hard fail if we don't have torch
@@ -874,6 +966,9 @@ def padded_tensor(items, pad_idx=0, use_cuda=False, left_padded=False):
     # max in time dimension
     t = max(lens)
 
+    # if input tensors are empty, we should expand to nulls
+    t = max(t, 1)
+
     if isinstance(items[0], torch.Tensor):
         # keep type of input tensors, they may already be cuda ones
         output = items[0].new(n, t)
@@ -881,29 +976,66 @@ def padded_tensor(items, pad_idx=0, use_cuda=False, left_padded=False):
         output = torch.LongTensor(n, t)
     output.fill_(pad_idx)
 
-    for i, item in enumerate(items):
+    for i, (item, length) in enumerate(zip(items, lens)):
+        if length == 0:
+            # skip empty items
+            continue
         if not isinstance(item, torch.Tensor):
+            # put non-tensors into a tensor
             item = torch.LongTensor(item)
         if left_padded:
             # place at end
-            output[i, t - lens[i]:] = item
+            output[i, t - length:] = item
         else:
             # place at beginning
-            output[i, :lens[i]] = item
+            output[i, :length] = item
 
     if use_cuda:
         output = output.cuda()
     return output, lens
 
 
+def padded_3d(tensors, pad_idx=0, use_cuda=0):
+    """Make 3D padded tensor for list of lists of 1D tensors or lists.
+
+    :param tensors:  list of lists of 1D tensors (or lists)
+    :param pad_idx:  padding to fill tensor with
+    :param use_cuda: whether to call cuda() before returning
+
+    :returns: 3D tensor with the maximum dimensions of the inputs
+    """
+    a = len(tensors)
+    b = max(len(row) for row in tensors)
+    c = max(len(item) for row in tensors for item in row)
+
+    # pad empty tensors
+    c = max(c, 1)
+
+    output = torch.LongTensor(a, b, c).fill_(pad_idx)
+
+    for i, row in enumerate(tensors):
+        for j, item in enumerate(row):
+            if len(item) == 0:
+                continue
+            if not isinstance(item, torch.Tensor):
+                item = torch.LongTensor(item)
+            output[i, j, :len(item)] = item
+
+    if use_cuda:
+        output = output.cuda()
+
+    return output
+
+
 def argsort(keys, *lists, descending=False):
     """Reorder each list in lists by the (descending) sorted order of keys.
 
-    :param iter keys: Keys to order by
+    :param iter keys: Keys to order by.
     :param list[list] lists: Lists to reordered by keys's order.
                              Correctly handles lists and 1-D tensors.
-    :param bool descending: Use descending order if true
-    :return: The reordered items
+    :param bool descending: Use descending order if true.
+
+    :returns: The reordered items.
     """
     ind_sorted = sorted(range(len(keys)), key=lambda k: keys[k])
     if descending:

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -30,6 +32,7 @@ def build(opt):
 
         # Mark the data as built.
         build_data.mark_done(dpath, version_string=version)
+
 
 if __name__ == '__main__':
     parser = ParlaiParser()

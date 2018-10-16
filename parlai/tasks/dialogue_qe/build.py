@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Moscow Institute of Physics and Technology.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -24,7 +26,13 @@ def build(opt):
         build_data.download(url, data_path, fname)
         build_data.untar(data_path, fname)
 
-        os.rename(os.path.join(data_path, 'data_train_' + version + '.json'), os.path.join(data_path, 'train.json'))
-        os.rename(os.path.join(data_path, 'data_test_' + version + '.json'), os.path.join(data_path, 'test.json'))
+        os.rename(
+            os.path.join(data_path, 'data_train_' + version + '.json'),
+            os.path.join(data_path, 'train.json')
+        )
+        os.rename(
+            os.path.join(data_path, 'data_test_' + version + '.json'),
+            os.path.join(data_path, 'test.json')
+        )
 
         build_data.mark_done(data_path, version_string=version)

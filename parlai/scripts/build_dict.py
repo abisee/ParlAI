@@ -1,9 +1,23 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree. An additional grant
 # of patent rights can be found in the PATENTS file in the same directory.
-"""Generates a dictionary file from the training data."""
+"""
+Generates a dictionary file from the training data.
+
+Examples
+--------
+
+.. code-block:: shell
+
+  # learn the vocabulary from one task, then train on another task.
+  python -m parlai.scripts.build_dict -t convai2 --dict-file premade.dict
+  python -m parlai.scripts.train_model -t squad --dict-file premade.dict -m seq2seq
+
+"""
 
 from parlai.core.dict import DictionaryAgent
 from parlai.core.params import ParlaiParser, str2class
@@ -16,14 +30,15 @@ import sys
 
 def setup_args(parser=None):
     if parser is None:
-        parser = ParlaiParser(True, True)
+        parser = ParlaiParser(True, True, 'Build a dictionary.')
     dict_loop = parser.add_argument_group('Dictionary Loop Arguments')
     dict_loop.add_argument('--dict-maxexs', default=-1, type=int,
-        help='max number of examples to build dict on')
+                           help='max number of examples to build dict on')
     dict_loop.add_argument('--dict-include-valid', default=False, type='bool',
-        help='Include validation set in dictionary building for task.')
+                           help='Include validation set in dictionary building '
+                                'for task.')
     dict_loop.add_argument('--dict-include-test', default=False, type='bool',
-        help='Include test set in dictionary building for task.')
+                           help='Include test set in dictionary building for task.')
     dict_loop.add_argument('-ltim', '--log-every-n-secs', type=float, default=2)
     partial, _ = parser.parse_known_args(nohelp=True)
     if vars(partial).get('dict_class'):

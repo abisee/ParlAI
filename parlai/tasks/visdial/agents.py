@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -84,6 +86,12 @@ class DefaultTeacher(DialogTeacher):
                 if i == 0:
                     # prepend with caption on first question
                     # only load image on first item
-                    yield (caption + '\n' + question, answer, None, answer_options, img_path), True
+                    yield (
+                        (
+                            caption + '\n' + question, answer,
+                            None, answer_options, img_path
+                        ),
+                        True
+                    )
                 else:
                     yield (question, answer, None, answer_options), False

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -26,8 +28,9 @@ def _path(task, opt):
         suffix = 'tst'
     elif dt == 'valid':
         suffix = 'dev'
-    datafile = os.path.join(prefix,
-                            '{tsk}-{type}.txt'.format(tsk=tasks[int(task)], type=suffix))
+    datafile = os.path.join(
+        prefix, '{tsk}-{type}.txt'.format(tsk=tasks[int(task)], type=suffix)
+    )
 
     cands_datafile = os.path.join(prefix, 'dialog-babi-candidates.txt')
 

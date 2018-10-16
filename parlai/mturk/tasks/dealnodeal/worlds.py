@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -81,7 +83,8 @@ class MTurkDealNoDealDialogWorld(MTurkTaskWorld):
                         self.first_turn = True
                         self.episodeDone = True
                 elif act['episode_done']:
-                    # Action is not selection but episode ended due to disconnection or timeout or returned hit
+                    # Action is not selection but episode ended due to
+                    # disconnection or timeout or returned hit
                     self.episodeDone = True
 
     def episode_done(self):

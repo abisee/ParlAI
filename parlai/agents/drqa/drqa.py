@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -284,7 +286,9 @@ class DrqaAgent(Agent):
         paragraphs, question = fields[:-1], fields[-1]
 
         if len(fields) > 2 and self.opt.get('subsample_docs', 0) > 0 and 'labels' in ex:
-            paragraphs = self. _subsample_doc(paragraphs, ex['labels'], self.opt.get('subsample_docs', 0))
+            paragraphs = self._subsample_doc(
+                paragraphs, ex['labels'], self.opt.get('subsample_docs', 0)
+            )
 
         document = ' '.join(paragraphs)
         inputs['document'], doc_spans = self.word_dict.span_tokenize(document)

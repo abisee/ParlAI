@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -31,7 +33,8 @@ heroku_url = \
     'https://cli-assets.heroku.com/heroku-cli/channels/stable/heroku-cli'
 
 
-def setup_heroku_server(task_name, task_files_to_copy=None, heroku_team=None):
+def setup_heroku_server(task_name, task_files_to_copy=None,
+                        heroku_team=None, use_hobby=False):
     print("Heroku: Collecting files...")
     # Install Heroku CLI
     os_name = None
@@ -181,9 +184,23 @@ def setup_heroku_server(task_name, task_files_to_copy=None, heroku_team=None):
     sh.git(shlex.split('add -A'))
     sh.git(shlex.split('commit -m "app"'))
     sh.git(shlex.split('push -f heroku master'))
+
     subprocess.check_output(shlex.split('{} ps:scale web=1'.format(
         heroku_executable_path)
     ))
+
+    if use_hobby:
+        try:
+            subprocess.check_output(shlex.split('{} dyno:type Hobby'.format(
+                heroku_executable_path)
+            ))
+        except subprocess.CalledProcessError:  # User doesn't have hobby access
+            delete_heroku_server(task_name)
+            sh.rm(shlex.split('-rf {}'.format(heroku_server_directory_path)))
+            raise SystemExit(
+                'Server launched with hobby flag but account cannot create '
+                'hobby servers.'
+            )
     os.chdir(parent_dir)
 
     # Clean up heroku files
@@ -295,7 +312,8 @@ def delete_local_server(task_name):
     sh.rm(shlex.split('-rf {}'.format(local_server_directory_path)))
 
 
-def setup_server(task_name, task_files_to_copy, local=False, heroku_team=None):
+def setup_server(task_name, task_files_to_copy, local=False, heroku_team=None,
+                 use_hobby=False):
     if local:
         return setup_local_server(
             task_name,
@@ -304,7 +322,7 @@ def setup_server(task_name, task_files_to_copy, local=False, heroku_team=None):
     return setup_heroku_server(
         task_name,
         task_files_to_copy=task_files_to_copy,
-        heroku_team=heroku_team
+        heroku_team=heroku_team, use_hobby=use_hobby,
     )
 
 

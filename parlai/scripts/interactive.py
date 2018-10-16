@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -5,13 +7,17 @@
 # of patent rights can be found in the PATENTS file in the same directory.
 """Basic example which allows local human keyboard input to talk to a trained model.
 
-For example:
-`python examples/interactive.py -m drqa -mf "models:drqa/squad/model"`
+Examples
+--------
 
-Then enter something like:
-"Bob is Blue.\nWhat is Bob?"
-as the user input (or in general for the drqa model, enter
-a context followed by '\n' followed by a question all as a single input.)
+.. code-block:: shell
+
+  python examples/interactive.py -m drqa -mf "models:drqa/squad/model"
+
+When prompted, enter something like: ``Bob is Blue.\\nWhat is Bob?``
+
+Input is often model or task specific, but in drqa, it is always
+``context '\\n' question``.
 """
 from parlai.core.params import ParlaiParser
 from parlai.core.agents import create_agent
@@ -23,7 +29,7 @@ import random
 
 def setup_args(parser=None):
     if parser is None:
-        parser = ParlaiParser(True, True)
+        parser = ParlaiParser(True, True, 'Interactive chat with a model')
     parser.add_argument('-d', '--display-examples', type='bool', default=False)
     parser.add_argument('--display-prettify', type='bool', default=False,
                         help='Set to use a prettytable when displaying '
@@ -35,7 +41,12 @@ def setup_args(parser=None):
     return parser
 
 
-def interactive(opt):
+def interactive(opt, print_parser=None):
+    if print_parser is not None:
+        if print_parser is True and isinstance(opt, ParlaiParser):
+            print_parser = opt
+        elif print_parser is False:
+            print_parser = None
     if isinstance(opt, ParlaiParser):
         print('[ Deprecated Warning: interactive should be passed opt not Parser ]')
         opt = opt.parse_args()
@@ -44,6 +55,11 @@ def interactive(opt):
     # Create model and assign it to the specified task
     agent = create_agent(opt, requireModelExists=True)
     world = create_task(opt, agent)
+
+    if print_parser:
+        # Show arguments after loading model
+        print_parser.opt = agent.opt
+        print_parser.print_args()
 
     # Show some example dialogs:
     while True:
@@ -58,4 +74,5 @@ def interactive(opt):
 
 if __name__ == '__main__':
     random.seed(42)
-    interactive(setup_args().parse_args())
+    parser = setup_args()
+    interactive(parser.parse_args(print_args=False), print_parser=parser)

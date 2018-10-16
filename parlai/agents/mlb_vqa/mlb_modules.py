@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree. An additional grant
 # of patent rights can be found in the PATENTS file in the same directory.
@@ -27,10 +29,12 @@ class Mlb(nn.Module):
         self.vocab_answers = self.dict.ans2ind.keys()
         self.num_classes = len(self.vocab_answers)
         # Modules
-        self.embedding = nn.Embedding(num_embeddings=len(self.dict.tok2ind),
-                                      embedding_dim=620,
-                                      padding_idx=self.dict.tok2ind[self.dict.null_token],
-                                      sparse=False)
+        self.embedding = nn.Embedding(
+            num_embeddings=len(self.dict.tok2ind),
+            embedding_dim=620,
+            padding_idx=self.dict.tok2ind[self.dict.null_token],
+            sparse=False
+        )
 
         if self.opt['use_bayesian']:
             self.rnn = BayesianGRU(620,
@@ -44,7 +48,10 @@ class Mlb(nn.Module):
 
     def process_lengths(self, input):
         max_length = input.size(1)
-        sub = input.eq(0).sum(1).squeeze(0) if input.size(0) != 1 else input.eq(0).sum(1)
+        if input.size(0) != 1:
+            sub = input.eq(0).sum(1).squeeze(0)
+        else:
+            sub = input.eq(0).sum(1)
         lengths = list(max_length - sub)
         return lengths
 
@@ -176,14 +183,16 @@ class MlbAtt(Mlb):
                                             self.num_classes)
         else:
             self.list_linear_v_fusion = nn.ModuleList(
-                                [nn.Linear(self.opt['dim_v'], self.opt['dim_h'])
-                                    for i in range(self.opt['num_glimpses'])])
+                [nn.Linear(self.opt['dim_v'], self.opt['dim_h'])
+                 for i in range(self.opt['num_glimpses'])]
+            )
             self.linear_q_fusion = nn.Linear(self.opt['dim_q'],
                                              self.opt['dim_h'] *
                                              self.opt['num_glimpses'])
             self.linear_classif = nn.Linear(
-                                    self.opt['dim_h'] * self.opt['num_glimpses'],
-                                    self.num_classes)
+                self.opt['dim_h'] * self.opt['num_glimpses'],
+                self.num_classes
+            )
 
         self.states = states
         if self.states:

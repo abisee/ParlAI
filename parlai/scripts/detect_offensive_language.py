@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -6,9 +8,13 @@
 """Basic example which iterates through the tasks specified and
 checks them for offensive language.
 
-For example:
-`python parlai/scripts/detect_offensive_language.py -t "convai_chitchat" --display-examples True -dt train:ordered`
-"""
+Examples
+--------
+
+.. code-block:: shell
+
+  python -m parlai.scripts.detect_offensive_language -t "convai_chitchat" --display-examples True
+"""  # noqa: E501
 from parlai.core.params import ParlaiParser
 from parlai.core.agents import create_agent
 from parlai.core.worlds import create_task
@@ -19,7 +25,7 @@ import random
 
 def setup_args(parser=None):
     if parser is None:
-        parser = ParlaiParser(True, True)
+        parser = ParlaiParser(True, True, 'Check task for offensive language')
     # Get command line arguments
     parser.add_argument('-ltim', '--log-every-n-secs', type=float, default=2)
     parser.add_argument('-d', '--display-examples', type='bool', default=False)
@@ -56,19 +62,21 @@ def detect(opt, printargs=None, print_parser=None):
     cnt = 0
     while not world.epoch_done():
         world.parley()
-        offensive = False
+        words = []
         for a in world.acts:
-            if bad.contains_offensive_language(a.get('text', '')):
-                offensive = True
+            offensive = bad.contains_offensive_language(a.get('text', ''))
+            if offensive:
+                words.append(offensive)
             labels = a.get('labels', a.get('eval_labels', ''))
             for l in labels:
-                if bad.contains_offensive_language(l):
-                    offensive = True
-
-        if offensive:
-            if opt['display_examples']:
-                print(world.display() + "\n~~")
-            cnt += 1
+                offensive = bad.contains_offensive_language(l)
+                if offensive:
+                    words.append(offensive)
+        if len(words) > 0 and opt['display_examples']:
+            print(world.display())
+            print("[Offensive words detected:]", ', '.join(words))
+            print("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
+        cnt += len(words)
         if log_time.time() > log_every_n_secs:
             report = world.report()
             log = {'offenses': cnt}

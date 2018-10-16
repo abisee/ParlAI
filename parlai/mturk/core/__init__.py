@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -12,4 +14,7 @@ try:
     import websocket  # noqa: F401
     import sh  # noqa: F401
 except ImportError:
-    raise SystemExit("Please install 3rd-party dependencies by running: pip install boto3 joblib websocket-client sh")
+    raise SystemExit(
+        "Please install 3rd-party dependencies by running: "
+        "pip install boto3 joblib websocket-client sh"
+    )

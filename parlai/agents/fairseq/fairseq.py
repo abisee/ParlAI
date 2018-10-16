@@ -1,25 +1,49 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree. An additional grant
 # of patent rights can be found in the PATENTS file in the same directory.
 
+"""
+ParlAI has limited support for using models from
+`Fairseq <https://github.com/pytorch/fairseq>`_. Fairseq often supports more
+experimental seq2seq architectures with fast fp16 training.
+
+Fairseq models can be used for many default tasks by combining a
+``--arch`` flag. For example:
+
+`python -m parlai.scripts.train -t convai2 -m fairseq -a transformer`
+"""
+
+
 from parlai.core.dict import DictionaryAgent
 from parlai.core.utils import argsort, padded_tensor
 
 try:
     from fairseq import models, optim, criterions
+    # this is a hack around versioning check because fairseq doesn't
+    # announce version numbers yet
+    # fairseq 0.5.0 has fp16_trainer, 0.6.0 does not
+    try:
+        from fairseq import fp16_trainer  # noqa: F401
+    except ImportError:
+        pass
+    else:
+        raise ImportError
 except ImportError:
-    raise RuntimeError(
+    raise ImportError(
         "Please run \"pip install -U 'git+https://github.com/pytorch/"
-        "fairseq.git@v0.5.0#egg=fairseq'\""
+        "fairseq.git@v0.6.0#egg=fairseq'\""
     )
-from fairseq import trainer, fp16_trainer
+from fairseq import trainer
 from fairseq.sequence_generator import SequenceGenerator
 from fairseq.sequence_scorer import SequenceScorer
 from fairseq import options
 from fairseq.tasks.fairseq_task import FairseqTask
-from fairseq.utils import convert_padding_direction
+from fairseq.utils import convert_padding_direction, load_model_state
+from fairseq.meters import AverageMeter
 
 from parlai.core.torch_agent import TorchAgent, Output
 from parlai.core.build_data import modelzoo_path
@@ -30,6 +54,7 @@ import torch
 import os
 import numpy as np
 import pickle
+from collections import defaultdict
 
 
 # If a model file is loaded, these arguments may NOT be overridden in the
@@ -103,6 +128,8 @@ def _fairseq_opt_wrapper(opt, skip_pretrained_embedding_loading=False):
             setattr(args, k, None)
         else:
             # otherwise we may need to modelzoo adjust the path for fairseq
+            import warnings
+            warnings.warn("We recommend using --embedding-type instead")
             setattr(args, k, modelzoo_path(opt.get("datapath"), getattr(args, k)))
 
     # Here we hardcode a few options that we currently do not support
@@ -196,14 +223,6 @@ class _ParlaiTask(FairseqTask):
 class FairseqAgent(TorchAgent):
     """Generic wrapper around fairseq for use in ParlAI"""
 
-    DEFAULT_OPTIONS = {
-        "adam_betas": "(0.9,0.98)",
-        "optimizer": "adam",
-        "clip_norm": 0.1,
-        "lr": 3e-4,
-        "arch": "transformer_iwslt_de_en",
-    }
-
     metrics = {}
 
     @classmethod
@@ -211,6 +230,18 @@ class FairseqAgent(TorchAgent):
         """Add command-line arguments specifically for this agent."""
         # first we need to add the general torch agent operations
         TorchAgent.add_cmdline_args(argparser)
+        # Dictionary construction stuff. Using the subclass in case we end up
+        # needing any fairseq specific things
+        cls.dictionary_class().add_cmdline_args(argparser)
+
+        # let's store any defaults that were overridden
+        old_defaults = argparser._defaults
+        if 'clip_norm' not in old_defaults:
+            # fairseq has a few awful defaults
+            old_defaults['clip_norm'] = 1.0
+        if 'optimizer' not in old_defaults:
+            old_defaults['optimizer'] = 'adam'
+            old_defaults['adam_betas'] = '(0.9,0.98)'
 
         agent = argparser.add_argument_group('Fairseq Arguments')
         agent.add_argument(
@@ -218,6 +249,12 @@ class FairseqAgent(TorchAgent):
             default=False,
             type='bool',
             help='Use fp16 training'
+        )
+        agent.add_argument(
+            '--fp16-init-scale',
+            default=2**7,
+            type=int,
+            help='default FP16 loss scale'
         )
         agent.add_argument(
             '--seed',
@@ -229,21 +266,18 @@ class FairseqAgent(TorchAgent):
         agent.add_argument(
             '--skip-generation',
             default=False,
-            type=bool,
+            type='bool',
             metavar='BOOL',
             help='Skips test time beam search. Much faster if you only need PPL',
         )
 
-        # Dictionary construction stuff. Using the subclass in case we end up
-        # needing any fairseq specific things
-        cls.dictionary_class().add_cmdline_args(argparser)
-
         # Check subargs for generation, optimizers, criterions, archs, etc
         options.add_generation_args(argparser)
         options.add_optimization_args(argparser)
+        options.add_checkpoint_args(argparser)
 
-        # make sure we set defaults according to the model before parsing
-        argparser.set_defaults(**cls.DEFAULT_OPTIONS)
+        # restore any user set defaults that fairseq possibly overrode
+        argparser.set_defaults(**old_defaults)
         known_args = argparser.parse_known_args(nohelp=True)[0]
 
         if hasattr(known_args, "optimizer"):
@@ -269,8 +303,8 @@ class FairseqAgent(TorchAgent):
                 a.default = None
                 break
 
-        # make sure we set defaults according to parlai model before parsing
-        argparser.set_defaults(**cls.DEFAULT_OPTIONS)
+        # once again restore any user-set defaults
+        argparser.set_defaults(**old_defaults)
         known_args = argparser.parse_known_args(nohelp=True)[0]
 
         if hasattr(known_args, "arch") and known_args.arch is not None:
@@ -286,8 +320,8 @@ class FairseqAgent(TorchAgent):
             )
             criterions.CRITERION_REGISTRY[known_args.criterion].add_args(crit_group)
 
-        # As one final check, let's make sure we set defaults correctly
-        argparser.set_defaults(**cls.DEFAULT_OPTIONS)
+        # one last time, restore any user set defaults
+        argparser.set_defaults(**old_defaults)
 
     @staticmethod
     def dictionary_class():
@@ -320,6 +354,9 @@ class FairseqAgent(TorchAgent):
             # We need a placeholder task for fairseq
             self.task = _ParlaiTask(self.dict)
 
+            # meters for keeping track of loss, ppl, etc.
+            self.meters = defaultdict(AverageMeter)
+
             # actually construct the model and generator
             self.model = self.build_model()
 
@@ -341,19 +378,17 @@ class FairseqAgent(TorchAgent):
             # set up the grader and the trainer
             self.criterion = criterions.build_criterion(self.args, self.task)
 
-            if getattr(self.args, 'fp16', None):
-                self.trainer = fp16_trainer.FP16Trainer(
-                    self.args, self.task, self.model, self.criterion
-                )
-            else:
-                # TODO: we might choose to add a --no-fp16 opt in the future to
-                # explicitly disable fp16 instead
-                if torch.cuda.get_device_capability(0)[0] >= 7:
-                    print("Heads up: using --fp16 could be a lot faster!")
+            # TODO: we might choose to add a --no-fp16 opt in the future to
+            # explicitly disable fp16 instead
+            if not self.args.fp16 and torch.cuda.get_device_capability(0)[0] >= 7:
+                print("Heads up: using --fp16 could be a lot faster!")
+            if self.use_cuda:
                 self.trainer = trainer.Trainer(
-                    self.args, self.task, self.model, self.criterion
+                    self.args, self.task, self.model, self.criterion, None,
                 )
-            self.trainer._build_optimizer()
+                self.trainer._build_optimizer()
+            else:
+                self.trainer = None
 
             # if the model already existed, let's preload it and the trainer
             if model_file_exists:
@@ -370,6 +405,7 @@ class FairseqAgent(TorchAgent):
             self.generator = shared['generator']
             self.dict = shared['dict']
             self.args = shared['args']
+            self.meters = shared['meters']
 
         # Start things off clean
         self.reset()
@@ -392,7 +428,12 @@ class FairseqAgent(TorchAgent):
         models.
         """
         model_class = models.ARCH_MODEL_REGISTRY[self.args.arch]
-        return model_class.build_model(self.args, self.task)
+        model = model_class.build_model(self.args, self.task)
+        if self.args.embedding_type != 'random':
+            self._copy_embeddings(
+                model.encoder.embed_tokens.weight, self.args.embedding_type
+            )
+        return model
 
     def share(self):
         shared = super().share()
@@ -401,6 +442,7 @@ class FairseqAgent(TorchAgent):
         shared['generator'] = self.generator
         shared['dict'] = self.dict
         shared['args'] = self.args
+        shared['meters'] = self.meters
         return shared
 
     def save(self, path):
@@ -417,8 +459,11 @@ class FairseqAgent(TorchAgent):
 
     def load(self, path):
         """Load using fairseq's checkpointing."""
-        old_options = self.trainer.load_checkpoint(path)
-        self._check_opts_unchanged(old_options, self.opt)
+        if self.trainer:
+            old_options = self.trainer.load_checkpoint(path)
+            self._check_opts_unchanged(old_options, self.opt)
+        else:
+            load_model_state(path, self.model)
 
     def shutdown(self):
         if not hasattr(self, 'trainer'):
@@ -441,6 +486,29 @@ class FairseqAgent(TorchAgent):
         """
         return super().batchify(obs_batch, sort=True, is_valid=_is_nonempty_observation)
 
+    def _update_metrics(self, metrics, sample):
+        if metrics is None:
+            # probably got an overflow in fp16 mode. don't count this sample
+            return
+
+        bsz = len(sample['target'])
+        ntok = sample['ntokens']
+        ssize = metrics['sample_size']
+
+        for k, v in metrics.items():
+            if k in {'ntokens', 'nsentences', 'sample_size'}:
+                # don't need these
+                continue
+            elif k == "nll_loss":
+                # nll loss is always normalized by ntokens
+                self.meters[k].update(v, ntok)
+            elif k == "loss":
+                # loss is explicitly normalized by passed up sample size
+                self.meters[k].update(v, ssize)
+            else:
+                # assume everything else it's averaged over bsz
+                self.meters[k].update(v, bsz)
+
     def train_step(self, batch):
         """Process batch of inputs and targets and train on them.
 
@@ -450,9 +518,10 @@ class FairseqAgent(TorchAgent):
         if batch.text_vec is None:
             return
         self.is_training = True
-        samples = self._make_sample(batch.text_vec, batch.label_vec)
+        sample = self._make_sample(batch)
         self.model.train()
-        self.trainer.train_step(samples)
+        metrics = self.trainer.train_step([sample])
+        self._update_metrics(metrics, sample)
 
     def eval_step(self, batch):
         """Process batch of inputs.
@@ -466,11 +535,12 @@ class FairseqAgent(TorchAgent):
         if batch.text_vec is None:
             return
         self.is_training = False
-        samples = self._make_sample(batch.text_vec, batch.label_vec)
+        samples = self._make_sample(batch)
         self.model.eval()
-        if batch.label_vec is not None:
+        if batch.label_vec is not None and self.trainer is not None:
             # Interactive mode won't have a gold label
-            self.trainer.valid_step(samples)
+            metrics = self.trainer.valid_step(samples)
+            self._update_metrics(metrics, samples)
 
         # Output placeholders
         reranked_cands = None
@@ -494,7 +564,7 @@ class FairseqAgent(TorchAgent):
                 xs = xs[:, :batch.text_lengths[i]]
                 # and appropriately pack the outputs
                 ys, _ = padded_tensor(cands, self.NULL_IDX, self.use_cuda)
-                s = self._make_sample(xs, ys)
+                s = self._make_sample(xs=xs, ys=ys)
                 # perform the actual grading, extract the scores
                 scored = list(self.scorer.score_batched_itr([s], cuda=self.use_cuda))
                 scores = [s[3][0]['score'].item() for s in scored]
@@ -520,11 +590,13 @@ class FairseqAgent(TorchAgent):
         return Output(generated_output, reranked_cands)
 
     def _generate(self, samples):
-        src_tokens = samples["net_input"]["src_tokens"]
-        src_lengths = samples["net_input"]["src_lengths"]
-        gens = self.generator.generate(src_tokens, src_lengths, maxlen=64)
+        no_prev_token = {
+            k: v for k, v in samples['net_input'].items() if k != 'prev_output_tokens'
+        }
+        gens = self.generator.generate(no_prev_token, maxlen=64)
+        bsz = samples['net_input']['src_tokens'].size(0)
         responses = []
-        for i in range(len(src_tokens)):
+        for i in range(bsz):
             beams = gens[i]
             selected = max(beams, key=lambda x: x["score"])
             tokens = selected["tokens"]
@@ -549,27 +621,24 @@ class FairseqAgent(TorchAgent):
         if not hasattr(self, "trainer"):
             return {}
 
-        # These are the metrics we'll pass up the way, and their new names
-        train_metrics = {"train_loss", "ups", "wps", "gnorm", "clip"}
-        valid_metrics = {"valid_loss"}
+        output = {k: v.avg for k, v in self.meters.items()}
 
-        metrics = train_metrics if self.is_training else valid_metrics
+        if "nll_loss" in self.meters:
+            # special case, we used sentence averaging so ppl comes from nll_loss
+            output["ppl"] = np.exp2(self.meters["nll_loss"].avg)
+        else:
+            # normal case, just use loss
+            output["ppl"] = np.exp2(self.meters["loss"].avg)
 
-        m = {k: self.trainer.meters[k].avg for k in metrics}
+        # Fairseq trainer metrics we'll pass up the way
+        trainer_metrics = {"ups", "wps", "gnorm", "clip"}
+        if self.is_training:
+            for k in trainer_metrics:
+                output[k] = self.trainer.meters[k].avg
 
-        # additionally output perplexity. note that fairseq models use base 2
-        # in cross_entropy:
-        # github.com/pytorch/fairseq/blob/master/fairseq/criterions/cross_entropy.py#L55
-        if "train_loss" in m:
-            m["train_ppl"] = np.exp2(m["train_loss"])
-        if "valid_loss" in m:
-            m["ppl"] = np.exp2(m["valid_loss"])
-
-        for k, v in m.items():
-            # clean up: rounds to sigfigs and converts tensors to floats
-            m[k] = round_sigfigs(v, 4)
-
-        return m
+        # for display purposes
+        output = {k: round_sigfigs(v, 4) for k, v in output.items()}
+        return output
 
     def reset_metrics(self):
         """Reset metrics calculated by the model back to zero."""
@@ -577,12 +646,15 @@ class FairseqAgent(TorchAgent):
             # We haven't set up the trainer yet, so we don't have any metrics
             return
         # We need to reset everything
-        for k in self.trainer.meters:
-            self.trainer.meters[k].reset()
+        self.meters.clear()
+        if self.trainer:
+            for k in self.trainer.meters:
+                self.trainer.meters[k].reset()
 
     def receive_metrics(self, metrics_dict):
         """Update lr scheduler with validation loss."""
-        self.trainer.lr_step(-1, metrics_dict["valid_loss"])
+        # TODO: this should be smarter
+        self.trainer.lr_step(-1, metrics_dict["loss"])
 
     # Helper functions
     def _seq_length(self, xs):
@@ -596,10 +668,17 @@ class FairseqAgent(TorchAgent):
         result[:, 1:] = ys[:, :-1]
         return result
 
-    def _make_sample(self, xs, ys):
+    def _make_sample(self, batch=None, xs=None, ys=None):
         """Generate a sample object that Fairseq expects."""
         # add extra info to samples
-        # TODO: should the right/left padding thing be in torch agent?
+        if batch is None and xs is None:
+            raise ValueError("Must supply either batch or xs")
+        if batch is None and ys is None:
+            raise ValueError("Must supply either batch or ys")
+        if xs is None:
+            xs = batch.text_vec
+        if ys is None:
+            ys = batch.label_vec
         repadded = convert_padding_direction(xs, self.dict.pad(), right_to_left=True)
         sample = {}
         sample["id"] = torch.arange(len(xs) - 1)

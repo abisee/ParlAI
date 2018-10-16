@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -123,7 +125,9 @@ class StarspaceAgent(Agent):
             self.model.share_memory()
 
         # set up modules
-        self.criterion = torch.nn.CosineEmbeddingLoss(margin=opt['margin'], size_average=False)
+        self.criterion = torch.nn.CosineEmbeddingLoss(
+            margin=opt['margin'], size_average=False
+        )
         self.reset()
         self.fixedCands = False
         self.fixedX = None
@@ -236,7 +240,10 @@ class StarspaceAgent(Agent):
             score[i] = torch.nn.functional.cosine_similarity(q, W[i], dim=0).data[0]
         val, ind = score.sort(descending=True)
         for i in range(20):
-            print(str(ind[i]) + " [" + str(val[i]) + "]: " + self.v2t(torch.Tensor([ind[i]])))
+            print(
+                str(ind[i]) + " [" + str(val[i]) + "]: " +
+                self.v2t(torch.Tensor([ind[i]]))
+            )
 
     def compute_metrics(self, loss, scores):
         metrics = {}

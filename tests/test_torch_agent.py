@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -6,7 +8,13 @@
 
 import unittest
 from parlai.core.agents import Agent
-from parlai.core.torch_agent import TorchAgent, Output
+
+SKIP_TESTS = False
+try:
+    from parlai.core.torch_agent import TorchAgent, Output
+    import torch
+except ImportError:
+    SKIP_TESTS = True
 
 
 class MockDict(Agent):
@@ -95,6 +103,7 @@ class TestTorchAgent(unittest.TestCase):
         shared = agent.share()
         self.assertTrue('dict' in shared)
 
+    @unittest.skipIf(SKIP_TESTS, "Torch not installed.")
     def test__vectorize_text(self):
         """Test _vectorize_text and its different options."""
         agent = get_agent()
@@ -187,6 +196,7 @@ class TestTorchAgent(unittest.TestCase):
         self.assertEqual(len(vec), 3)
         self.assertEqual(vec.tolist(), [MockDict.BEG_IDX, 1, 2])
 
+    @unittest.skipIf(SKIP_TESTS, "Torch not installed.")
     def test__check_truncate(self):
         """Make sure we are truncating when needed."""
         agent = get_agent()
@@ -198,6 +208,7 @@ class TestTorchAgent(unittest.TestCase):
         self.assertEqual(agent._check_truncate(inp, 1).tolist(), [1])
         self.assertEqual(agent._check_truncate(inp, 0).tolist(), [])
 
+    @unittest.skipIf(SKIP_TESTS, "Torch not installed.")
     def test_vectorize(self):
         """Test the vectorization of observations.
 
@@ -294,6 +305,7 @@ class TestTorchAgent(unittest.TestCase):
         self.assertEqual([m.tolist() for m in out['memory_vecs']],
                          [[1], [1], [1]])
 
+    @unittest.skipIf(SKIP_TESTS, "Torch not installed.")
     def test_batchify(self):
         """Make sure the batchify function sets up the right fields."""
         agent = get_agent(rank_candidates=True)
@@ -443,6 +455,7 @@ class TestTorchAgent(unittest.TestCase):
         for i, cs in enumerate(batch.candidate_vecs):
             self.assertEqual(len(cs), len(obs_cands[i]['label_candidates']))
 
+    @unittest.skipIf(SKIP_TESTS, "Torch not installed.")
     def test_match_batch(self):
         """Make sure predictions are correctly aligned when available."""
         agent = get_agent()
@@ -671,6 +684,7 @@ class TestTorchAgent(unittest.TestCase):
         self.assertEqual(agent.last_reply(use_label=False),
                          'It\'s okay! I\'m a leaf on the wind.')
 
+    @unittest.skipIf(SKIP_TESTS, "Torch not installed.")
     def test_observe(self):
         """Make sure agent stores and returns observation."""
         agent = get_agent()
@@ -699,6 +713,7 @@ class TestTorchAgent(unittest.TestCase):
         self.assertEqual(out['text'],
                          'I\'ll be back.\nI\'m back.\nI\'ll be back.')
 
+    @unittest.skipIf(SKIP_TESTS, "Torch not installed.")
     def test_batch_act(self):
         """Make sure batch act calls the right step."""
         agent = get_agent()
@@ -731,8 +746,4 @@ class TestTorchAgent(unittest.TestCase):
 
 
 if __name__ == '__main__':
-    try:
-        import torch
-        unittest.main()
-    except ImportError as e:
-        print('Skipping TestTorchAgent, no pytorch.')
+    unittest.main()

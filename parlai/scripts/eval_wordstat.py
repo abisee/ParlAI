@@ -1,4 +1,5 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -11,19 +12,23 @@ One can also use the function defined here in other places in order to get such
 statistic for any agent given the agent object (with corr. dict) and a
 sequence.
 
-Example:
-    python eval_wordstat.py -mf data/model -t convai2:self
 
-One can specify bins boundaries with argument -fb | --freq-bins 10,100,1000
+Additionally provides function get_word_stats that can be used in other parts
+of runtime code since it depends only on the agent object. For example:
 
-Also function get_word_stats can be used in other parts of runtime code since
-it depends only on the agent object. To use it - firstly do the import:
+::
 
-    from parlai.scripts.eval_wordstat import get_word_stats
+  from parlai.scripts.eval_wordstat import get_word_stats
+  reqs, cnt = get_word_stats(predictions.tolist(), self.dict)
 
-then you can call this function like this:
 
-    reqs, cnt = get_word_stats(predictions.tolist(), self.dict)
+Examples
+--------
+
+.. code-block:: shell
+
+  eval_wordstat.py -mf data/model -t convai2:self --freq-bins 10,100,1000
+
 """
 
 from parlai.core.params import ParlaiParser
@@ -49,7 +54,7 @@ import json
 
 def setup_args(parser=None):
     if parser is None:
-        parser = ParlaiParser(True, True)
+        parser = ParlaiParser(True, True, 'compute statistics from model predictions')
     DictionaryAgent.add_cmdline_args(parser)
     # Get command line arguments
     parser.add_argument('-ne', '--num-examples', type=int, default=-1)
@@ -61,7 +66,7 @@ def setup_args(parser=None):
     parser.add_argument('-dup', '--dump-predictions-path', type=str, default=None,
                         help='Dump predictions into file')
     parser.add_argument('-cun', '--compute-unique', type=bool, default=True,
-                        help='Compute % of unique responses from the model')
+                        help='Compute %% of unique responses from the model')
     parser.add_argument('--eval-gold', type=bool, default=False,
                         help='Just evaluate gold responses')
     # parser.set_defaults(datatype='valid', model='repeat_label')
@@ -76,6 +81,7 @@ def fprint(outfile, txt, end='\n'):
 def get_word_stats(text, agent_dict, bins=[0, 100, 1000, 100000]):
     """
     Function which takes text sequence and dict, returns word freq and length statistics
+
     :param sequence: text sequence
     :param agent_dict: can be external dict or dict from the model
     :param bins: list with range boundaries
@@ -99,9 +105,8 @@ def get_word_stats(text, agent_dict, bins=[0, 100, 1000, 100000]):
 def eval_wordstat(opt, print_parser=None):
     """Evaluates a model.
 
-    Arguments:
-    opt -- tells the evaluation function how to run
-    print_parser -- if provided, prints the options that are set within the
+    :param opt: tells the evaluation function how to run
+    :param print_parser: if provided, prints the options that are set within the
         model after loading the model
     """
     random.seed(42)

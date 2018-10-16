@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -90,7 +92,9 @@ class OeTeacher(FixedDialogTeacher):
 
     def submit_load_request(self, image_id):
         img_path = self.image_path + '%012d.jpg' % (image_id)
-        self.data_loader.request_load(self.receive_data, self.image_loader.load, (img_path,))
+        self.data_loader.request_load(
+            self.receive_data, self.image_loader.load, (img_path,)
+        )
 
     def get(self, episode_idx, entry_idx=0):
         qa = self.ques['questions'][episode_idx]

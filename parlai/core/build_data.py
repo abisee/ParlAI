@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -122,7 +124,9 @@ def download(url, path, fname, redownload=False):
 
 def make_dir(path):
     """Makes the directory and any nonexistent parent directories."""
-    os.makedirs(path, exist_ok=True)
+    # the current working directory is a fine path
+    if path != '':
+        os.makedirs(path, exist_ok=True)
 
 
 def move(path1, path2):

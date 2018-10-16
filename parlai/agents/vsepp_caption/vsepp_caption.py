@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -113,13 +115,6 @@ class VseppCaptionAgent(TorchAgent):
         self.metrics['loss'] = 0.0
         self.metrics['r@'] = []
 
-    def observe(self, observation):
-        """Save observation for act."""
-        # shallow copy observation (deep copy can be expensive)
-        observation = observation.copy()
-        self.observation = observation
-        return observation
-
     def candidate_helper(self, candidate_vecs, candidate_labels, is_testing):
         """
         Prepares a list of candidate lists into a format ready for the model
@@ -157,7 +152,7 @@ class VseppCaptionAgent(TorchAgent):
     def train_step(self, batch):
         images = torch.stack([self.transform(img) for img in batch.image])
         if self.use_cuda:
-            images = images.cuda(async=True)
+            images = images.cuda(non_blocking=True)
 
         text_lengths = torch.LongTensor(batch.label_lengths)
         if self.use_cuda:
@@ -179,11 +174,14 @@ class VseppCaptionAgent(TorchAgent):
     def eval_step(self, batch):
         images = torch.stack([self.transform(img) for img in batch.image])
         if self.use_cuda:
-            images = images.cuda(async=True)
+            images = images.cuda(non_blocking=True)
 
         # Need to collate then sort the captions by length
-        cands = [self.candidate_helper(label_cands_vec, label_cands, self.mode == 'test')
-                 for label_cands_vec, label_cands in zip(batch.candidate_vecs, batch.candidates)]
+        cands = [
+            self.candidate_helper(label_cands_vec, label_cands, self.mode == 'test')
+            for label_cands_vec, label_cands in
+            zip(batch.candidate_vecs, batch.candidates)
+        ]
         self.model.eval()
         # Obtain the image embeddings
         img_embs, _ = self.model(images, None, None)

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -41,7 +43,10 @@ class FullTeacher(HalfTeacher):
     """This version of opensubtitles creates all possible dialog examples."""
     def setup_data(self, path):
         def rebuild(entries):
-            return [(entries[i][1][0], [entries[i + 1][0]]) for i in range(len(entries) - 1)]
+            return [
+                (entries[i][1][0], [entries[i + 1][0]])
+                for i in range(len(entries) - 1)
+            ]
 
         # this shows conversations in both directions
         alternate = []

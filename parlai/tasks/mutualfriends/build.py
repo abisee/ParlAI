@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -21,7 +23,10 @@ def build(opt):
         build_data.make_dir(dpath)
 
         # Download the data.
-        url = 'https://worksheets.codalab.org/rest/bundles/0x5a4cefea7fd443cea15aa532bb8fcd67/contents/blob/'
+        url = (
+            'https://worksheets.codalab.org/rest/bundles/'
+            '0x5a4cefea7fd443cea15aa532bb8fcd67/contents/blob/'
+        )
         build_data.download(url, dpath, 'data.json')
 
         # Mark the data as built.

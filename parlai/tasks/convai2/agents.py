@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -38,7 +40,7 @@ class NoneTeacher(FbDialogTeacher):
         try:
             cands = opt['task'].split(":")[2]
             use_cands = False if cands == 'no_cands' else True
-        except:
+        except Exception:
             use_cands = True
         opt['datafile'] = _path(opt, 'none_original', use_cands)
         super().__init__(opt, shared)
@@ -50,7 +52,7 @@ class SelfOriginalTeacher(FbDialogTeacher):
         try:
             cands = opt['task'].split(":")[2]
             use_cands = False if cands == 'no_cands' else True
-        except:
+        except Exception:
             use_cands = True
         opt['datafile'] = _path(opt, 'self_original', use_cands)
         super().__init__(opt, shared)
@@ -66,7 +68,7 @@ class SelfRevisedTeacher(FbDialogTeacher):
         try:
             cands = opt['task'].split(":")[2]
             use_cands = False if cands == 'no_cands' else True
-        except:
+        except Exception:
             use_cands = True
         opt['datafile'] = _path(opt, 'self_revised', use_cands)
         super().__init__(opt, shared)

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -57,6 +59,7 @@ def ids_to_tasks(ids):
         raise RuntimeError('No task specified. Please select a task with ' +
                            '--task {task_name}.')
     return ','.join((_id_to_task(i) for i in ids.split(',') if len(i) > 0))
+
 
 # Build the task list from the json file.
 tasks, tags = _build(task_list)

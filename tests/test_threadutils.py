@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -99,7 +101,10 @@ class TestSharedTable(unittest.TestCase):
         assert len(st) == 1
 
         if torch.cuda.is_available():
-            st = SharedTable({'a': torch.cuda.FloatTensor([1]), 'b': torch.cuda.LongTensor(2)})
+            st = SharedTable({
+                'a': torch.cuda.FloatTensor([1]),
+                'b': torch.cuda.LongTensor(2),
+            })
             assert st['a'][0] == 1.0
             assert len(st) == 2
             assert 'b' in st

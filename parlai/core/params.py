@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -89,14 +91,19 @@ class ParlaiParser(argparse.ArgumentParser):
     For example, see ``parlai.core.dict.DictionaryAgent.add_cmdline_args``.
     """
 
-    def __init__(self, add_parlai_args=True, add_model_args=False):
+    def __init__(
+        self,
+        add_parlai_args=True,
+        add_model_args=False,
+        description='ParlAI parser',
+    ):
         """Initializes the ParlAI argparser.
         - add_parlai_args (default True) initializes the default arguments for
         ParlAI package, including the data download paths and task arguments.
         - add_model_args (default False) initializes the default arguments for
         loading models, including initializing arguments from that model.
         """
-        super().__init__(description='ParlAI parser.', allow_abbrev=False,
+        super().__init__(description=description, allow_abbrev=False,
                          conflict_handler='resolve')
         self.register('type', 'bool', str2bool)
         self.register('type', 'class', str2class)
@@ -214,6 +221,10 @@ class ParlaiParser(argparse.ArgumentParser):
                  ' a heroku server.'
         )
         mturk.add_argument(
+            '--hobby', dest='hobby', default=False, action='store_true',
+            help='Run the heroku server on the hobby tier.'
+        )
+        mturk.add_argument(
             '--max-time', dest='max_time', default=0, type=int,
             help='Maximum number of seconds per day that a worker is allowed '
                  'to work on this assignment'
@@ -285,11 +296,22 @@ class ParlaiParser(argparse.ArgumentParser):
                  'defaults to {parlai_dir}/downloads')
         parlai.add_argument(
             '-dt', '--datatype', default='train',
-            choices=['train', 'train:stream', 'train:ordered',
-                     'train:ordered:stream', 'train:stream:ordered',
-                     'train:evalmode', 'train:evalmode:stream', 'train:evalmode:ordered',
-                     'train:evalmode:ordered:stream', 'train:evalmode:stream:ordered',
-                     'valid', 'valid:stream', 'test', 'test:stream'],
+            choices=[
+                'train',
+                'train:stream',
+                'train:ordered',
+                'train:ordered:stream',
+                'train:stream:ordered',
+                'train:evalmode',
+                'train:evalmode:stream',
+                'train:evalmode:ordered',
+                'train:evalmode:ordered:stream',
+                'train:evalmode:stream:ordered',
+                'valid',
+                'valid:stream',
+                'test',
+                'test:stream'
+            ],
             help='choose from: train, train:ordered, valid, test. to stream '
                  'data add ":stream" to any option (e.g., train:stream). '
                  'by default: train is random with replacement, '
@@ -578,5 +600,10 @@ class ParlaiParser(argparse.ArgumentParser):
     def add_argument_group(self, *args, **kwargs):
         """Override to make arg groups also convert underscores to hyphens."""
         arg_group = super().add_argument_group(*args, **kwargs)
-        arg_group.add_argument = self.add_argument  # override _ => -
+        original_add_arg = arg_group.add_argument
+
+        def ag_add_argument(*args, **kwargs):
+            return original_add_arg(*fix_underscores(args), **kwargs)
+
+        arg_group.add_argument = ag_add_argument  # override _ => -
         return arg_group

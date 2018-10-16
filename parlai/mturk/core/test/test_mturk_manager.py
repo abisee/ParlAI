@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2017-present, Facebook, Inc.
 # All rights reserved.
 # This source code is licensed under the BSD-style license found in the
@@ -132,7 +134,8 @@ class InitTestMTurkManager(unittest.TestCase):
         self.mturk_agent_ids = ['mturk_agent_1', 'mturk_agent_2']
         self.mturk_manager = MTurkManager(
             opt=self.opt,
-            mturk_agent_ids=self.mturk_agent_ids
+            mturk_agent_ids=self.mturk_agent_ids,
+            is_test=True,
         )
 
     def tearDown(self):
@@ -202,7 +205,8 @@ class TestMTurkManagerUnitFunctions(unittest.TestCase):
         self.mturk_agent_ids = ['mturk_agent_1', 'mturk_agent_2']
         self.mturk_manager = MTurkManager(
             opt=self.opt,
-            mturk_agent_ids=self.mturk_agent_ids
+            mturk_agent_ids=self.mturk_agent_ids,
+            is_test=True,
         )
         self.mturk_manager._init_state()
         self.mturk_manager.port = 3030
@@ -781,7 +785,8 @@ class TestMTurkManagerPoolHandling(unittest.TestCase):
         self.mturk_agent_ids = ['mturk_agent_1', 'mturk_agent_2']
         self.mturk_manager = MTurkManager(
             opt=self.opt,
-            mturk_agent_ids=self.mturk_agent_ids
+            mturk_agent_ids=self.mturk_agent_ids,
+            is_test=True,
         )
         self.mturk_manager._init_state()
         self.agent_1 = MTurkAgent(self.opt, self.mturk_manager, TEST_HIT_ID_1,
@@ -877,7 +882,8 @@ class TestMTurkManagerTimeHandling(unittest.TestCase):
         self.mturk_agent_ids = ['mturk_agent_1', 'mturk_agent_2']
         self.mturk_manager = MTurkManager(
             opt=self.opt,
-            mturk_agent_ids=self.mturk_agent_ids
+            mturk_agent_ids=self.mturk_agent_ids,
+            is_test=True,
         )
         self.mturk_manager.time_limit_checked = time.time()
         self.mturk_manager.worker_manager.un_time_block_workers = \
@@ -971,7 +977,8 @@ class TestMTurkManagerLifecycleFunctions(unittest.TestCase):
         self.mturk_agent_ids = ['mturk_agent_1', 'mturk_agent_2']
         self.mturk_manager = MTurkManager(
             opt=self.opt,
-            mturk_agent_ids=self.mturk_agent_ids
+            mturk_agent_ids=self.mturk_agent_ids,
+            is_test=True,
         )
         MTurkManagerFile.server_utils.delete_server = mock.MagicMock()
 
