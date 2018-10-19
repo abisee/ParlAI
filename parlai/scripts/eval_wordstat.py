@@ -40,9 +40,14 @@ from parlai.core.metrics import normalize_answer
 from parlai.core.logs import TensorboardLogger
 from collections import Counter
 
+from parlai_internal.projects.seq2plan2seq.controlled_seq2seq.control_vars import eval_control, CONTROL2CONTINUOUS
+
+import numpy as np
+
 import copy
 import numpy
 import random
+import json
 
 
 def setup_args(parser=None):
@@ -122,6 +127,21 @@ def eval_wordstat(opt, print_parser=None):
         log_every_n_secs = float('inf')
     log_time = TimeLogger()
 
+    data = {} # to write to json
+    data['opt'] = opt
+    if opt['model']=="repeat_label":
+        outfile = "/private/home/abisee/models/goldresponse.wordstats.json"
+    else:
+        outfile = "%s.%s.%s.%s.%s" % (
+            opt.get('model_file'),
+            opt.get('datatype'),
+            "beam%i" % agent.opt['beam_size'],
+            "beamminnbest%i" % agent.opt['beam_min_n_best'],
+            "setcontrols:" + "_".join(["%s%s" % (c, str(d['set_value'])) for c,d in agent.opt['controls'].items()])
+            )
+        outfile += ".wordstats.json"
+    print("writing to outfile: %s" % outfile)
+
     cnt = 0
     word_statistics = {
         'mean_wlength': [],
@@ -133,6 +153,25 @@ def eval_wordstat(opt, print_parser=None):
         'context_list': []
     }
     bins = [int(i) for i in opt['freq_bins'].split(',')]
+
+    # Init this to keep track of faithfulness metrics
+    faithfulness_stats = {}
+
+    # Keep a confusion matrix for each control var
+    faithfulness_stats['confusion_matrices'] = {
+        c: np.zeros((d['num_buckets'], d['num_buckets']))
+            for c,d in agent.opt['controls'].items()
+        }
+
+    # For the continuous control values, for each target bucket keep a list of all the target and model's control values
+    faithfulness_stats['continuous_values'] = {
+        c: {
+            'target': {b: [] for b in range(d['num_buckets'])},
+            'model': {b: [] for b in range(d['num_buckets'])},
+            }
+        for c,d in agent.opt['controls'].items() if CONTROL2CONTINUOUS[c]
+    }
+
 
     def process_prediction(prediction, word_statistics):
         word_statistics['pred_list'].append(normalize_answer(prediction))
@@ -148,21 +187,45 @@ def eval_wordstat(opt, print_parser=None):
     while not world.epoch_done():
         world.parley()
         if batch_size == 1:
+            raise Exception("some things aren't implemented for batchsize 1")
             cnt += 1
             prediction = world.acts[-1]['text']
             word_statistics['context_list'].append(world.acts[0]['text'])
             word_statistics['pure_pred_list'].append(prediction)
             word_statistics = process_prediction(prediction, word_statistics)
         else:
-            for w in world.worlds:
+            for world_idx,w in enumerate(world.worlds):
                 try:
-                    prediction = w.acts[-1]['text']
+                    try:
+                        prediction = w.acts[-1]['text']
+                    except KeyError:
+                        continue
+                    if opt['model']=="repeat_label":
+                        prediction = w.acts[0]['eval_labels'][0]
                     word_statistics['context_list'].append(w.acts[0]['text'])
                     word_statistics['pure_pred_list'].append(prediction)
                 except IndexError:
                     continue
                 cnt += 1
                 word_statistics = process_prediction(prediction, word_statistics)
+
+                # Measure faithfulness
+                for control in agent.opt['controls'].keys():
+                    # Intended control value
+                    target_controlval_bucket, target_controlval = eval_control(w.acts[0], w.acts[0]['eval_labels'][0], control)
+                    assert target_controlval_bucket == int(w.acts[0][control])
+
+                    # Get control value for prediction
+                    reply_controlval_bucket, reply_controlval = eval_control(w.acts[0], prediction, control)
+
+                    # Record in confusion matrix
+                    faithfulness_stats['confusion_matrices'][control][target_controlval_bucket][reply_controlval_bucket] += 1
+
+                    # For continuous control variables, record continuous value
+                    if CONTROL2CONTINUOUS[control]:
+                        faithfulness_stats['continuous_values'][control]['target'][target_controlval_bucket].append(target_controlval)
+                        faithfulness_stats['continuous_values'][control]['model'][target_controlval_bucket].append(reply_controlval)
+
 
         if log_time.time() > log_every_n_secs:
             report = world.report()
@@ -200,13 +263,16 @@ def eval_wordstat(opt, print_parser=None):
         for k, v in cntr.items():
             if v == 1:
                 unique_list.append(k)
+        unique_percent = len(unique_list) / len(word_statistics['pred_list']) * 100
         print(
             "Unique responses: {:.{prec}f}%"
             .format(
-                len(unique_list) / len(word_statistics['pred_list']) * 100,
+                unique_percent,
                 prec=2
             )
         )
+
+
 
     if opt['dump_predictions_path'] is not None:
         with open(opt['dump_predictions_path'], 'w') as f:
@@ -242,9 +308,23 @@ def eval_wordstat(opt, print_parser=None):
             prec=2
         )
     )
-
     report = world.report()
+    if opt['gold_response']:
+        report['ppl'] = 0.0
     print(report)
+
+    data['unique_percent'] = unique_percent
+    data['word_statistics'] = word_statistics
+    data['predictions'] = word_statistics['pure_pred_list']
+    data['report'] = report
+    faithfulness_stats['confusion_matrices'] = {c:a.tolist() for c,a in faithfulness_stats['confusion_matrices'].items()} # need to convert to lists because can't write numpy arrays to json
+    data['faithfulness_stats'] = faithfulness_stats
+
+    # write results to file
+    print("writing to %s" % outfile)
+    with open(outfile, 'w') as f:
+        json.dump(data, f)
+
     return report
 
 
