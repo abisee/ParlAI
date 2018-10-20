@@ -309,7 +309,7 @@ def eval_wordstat(opt, print_parser=None):
         )
     )
     report = world.report()
-    if opt['gold_response']:
+    if opt['model']=='repeat_label':
         report['ppl'] = 0.0
     print(report)
 
