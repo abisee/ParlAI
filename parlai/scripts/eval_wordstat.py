@@ -92,6 +92,26 @@ def get_word_stats(text, agent_dict, bins=[0, 100, 1000, 100000]):
     clength = len(text)  # including spaces
     return freqs, len(pred_freq), wlength, clength
 
+def update_faithfulness_stats(faithfulness_stats, act0, prediction, controls):
+    for control in controls.keys():
+        # Intended control value
+        target_controlval_bucket, target_controlval = eval_control(act0, act0['eval_labels'][0], control)
+        assert target_controlval_bucket == int(act0[control])
+
+        # Get control value for prediction
+        reply_controlval_bucket, reply_controlval = eval_control(act0, prediction, control)
+
+        # Record in confusion matrix
+        faithfulness_stats['confusion_matrices'][control][target_controlval_bucket][reply_controlval_bucket] += 1
+
+        # For continuous control variables, record continuous value
+        if CONTROL2CONTINUOUS[control]:
+            faithfulness_stats['continuous_values'][control]['target'][target_controlval_bucket].append(target_controlval)
+            faithfulness_stats['continuous_values'][control]['model'][target_controlval_bucket].append(reply_controlval)
+
+        return faithfulness_stats
+
+
 
 def eval_wordstat(opt, print_parser=None):
     """Evaluates a model.
@@ -187,12 +207,13 @@ def eval_wordstat(opt, print_parser=None):
     while not world.epoch_done():
         world.parley()
         if batch_size == 1:
-            raise Exception("some things aren't implemented for batchsize 1")
+            # raise Exception("some things aren't implemented for batchsize 1")
             cnt += 1
             prediction = world.acts[-1]['text']
             word_statistics['context_list'].append(world.acts[0]['text'])
             word_statistics['pure_pred_list'].append(prediction)
             word_statistics = process_prediction(prediction, word_statistics)
+            faithfulness_stats = update_faithfulness_stats(faithfulness_stats, world.acts[0], prediction, agent.opt['controls'])
         else:
             for world_idx,w in enumerate(world.worlds):
                 try:
@@ -209,23 +230,7 @@ def eval_wordstat(opt, print_parser=None):
                 cnt += 1
                 word_statistics = process_prediction(prediction, word_statistics)
 
-                # Measure faithfulness
-                for control in agent.opt['controls'].keys():
-                    # Intended control value
-                    target_controlval_bucket, target_controlval = eval_control(w.acts[0], w.acts[0]['eval_labels'][0], control)
-                    assert target_controlval_bucket == int(w.acts[0][control])
-
-                    # Get control value for prediction
-                    reply_controlval_bucket, reply_controlval = eval_control(w.acts[0], prediction, control)
-
-                    # Record in confusion matrix
-                    faithfulness_stats['confusion_matrices'][control][target_controlval_bucket][reply_controlval_bucket] += 1
-
-                    # For continuous control variables, record continuous value
-                    if CONTROL2CONTINUOUS[control]:
-                        faithfulness_stats['continuous_values'][control]['target'][target_controlval_bucket].append(target_controlval)
-                        faithfulness_stats['continuous_values'][control]['model'][target_controlval_bucket].append(reply_controlval)
-
+                faithfulness_stats = update_faithfulness_stats(faithfulness_stats, w.acts[0], prediction, agent.opt['controls'])
 
         if log_time.time() > log_every_n_secs:
             report = world.report()
