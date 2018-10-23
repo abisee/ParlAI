@@ -109,7 +109,7 @@ def update_faithfulness_stats(faithfulness_stats, act0, prediction, controls):
             faithfulness_stats['continuous_values'][control]['target'][target_controlval_bucket].append(target_controlval)
             faithfulness_stats['continuous_values'][control]['model'][target_controlval_bucket].append(reply_controlval)
 
-        return faithfulness_stats
+    return faithfulness_stats
 
 
 
