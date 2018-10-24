@@ -152,13 +152,14 @@ def eval_wordstat(opt, print_parser=None):
     if opt['model']=="repeat_label":
         outfile = "/private/home/abisee/models/goldresponse.wordstats.json"
     else:
-        outfile = "%s.%s.%s.%s.%s" % (
+        outfile = "%s.%s.%s.%s" % (
             opt.get('model_file'),
             opt.get('datatype'),
             "beam%i" % agent.opt['beam_size'],
-            "beamminnbest%i" % agent.opt['beam_min_n_best'],
-            "setcontrols:" + "_".join(["%s%s" % (c, str(d['set_value'])) for c,d in agent.opt['controls'].items()])
+            "beamminnbest%i" % agent.opt['beam_min_n_best']
             )
+        if len(agent.opt['controls']) > 0:
+            outfile += "setcontrols:" + "_".join(["%s%s" % (c, str(d['set_value'])) for c,d in agent.opt['controls'].items()])
         outfile += ".wordstats.json"
     print("writing to outfile: %s" % outfile)
 
@@ -276,8 +277,6 @@ def eval_wordstat(opt, print_parser=None):
                 prec=2
             )
         )
-
-
 
     if opt['dump_predictions_path'] is not None:
         with open(opt['dump_predictions_path'], 'w') as f:
