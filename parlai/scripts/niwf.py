@@ -164,6 +164,11 @@ def load_niwf_fn():
     def sent2niwf_fn(sent):
         sent_iwf, problem_words = get_iwf(sent, word2iwf)
         sent_niwf = get_niwf(sent_iwf, min_iwf, max_iwf)
+        if sent_niwf < 0:
+            print(sent)
+            print(sent_niwf)
+            print("warning, sent_niwf is negative")
+            import pdb; pdb.set_trace()
         return sent_niwf, problem_words
 
     return sent2niwf_fn
@@ -221,4 +226,9 @@ def niwf_to_clusterid(niwf, bucket_boundaries):
         lower_bound = bucket_boundaries[clusterid]
         if niwf >= lower_bound:
             return clusterid
-    raise Exception()
+    print(niwf)
+    print(bucket_boundaries)
+    print("problem: niwf doesn't fit into bucket_boundaries")
+    import pdb; pdb.set_trace()
+    return 0
+    # raise Exception()
