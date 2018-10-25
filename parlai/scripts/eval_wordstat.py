@@ -41,6 +41,8 @@ from parlai.core.logs import TensorboardLogger
 from collections import Counter
 
 from parlai_internal.projects.seq2plan2seq.controlled_seq2seq.control_vars import eval_control, CONTROL2CONTINUOUS
+from parlai_internal.projects.seq2plan2seq.controlled_seq2seq.beamsearch_features import eval_attr, ATTR2SENTSCOREFN
+from parlai_internal.projects.seq2plan2seq.controlled_seq2seq.util import get_history
 
 import numpy as np
 
@@ -48,6 +50,7 @@ import copy
 import numpy
 import random
 import json
+import time
 
 
 def setup_args(parser=None):
@@ -65,7 +68,9 @@ def setup_args(parser=None):
                         help='Dump predictions into file')
     parser.add_argument('-cun', '--compute-unique', type=bool, default=True,
                         help='Compute %% of unique responses from the model')
-    parser.set_defaults(datatype='valid', model='repeat_label')
+    parser.add_argument('-gr', '--gold-response', type=bool, default=False,
+                        help='Compute stats for gold response')
+    parser.set_defaults(datatype='valid')
     TensorboardLogger.add_cmdline_args(parser)
     return parser
 
@@ -112,6 +117,12 @@ def update_faithfulness_stats(faithfulness_stats, act0, prediction, controls):
     return faithfulness_stats
 
 
+def update_output_attr_stats(output_attribute_stats, prediction, history):
+    for attr, l in output_attribute_stats.items():
+        attr_score = eval_attr(prediction, history, attr)
+        l.append(attr_score)
+    return output_attribute_stats
+
 
 def eval_wordstat(opt, print_parser=None):
     """Evaluates a model.
@@ -149,19 +160,24 @@ def eval_wordstat(opt, print_parser=None):
 
     data = {} # to write to json
     data['opt'] = opt
-    if opt['model']=="repeat_label":
-        outfile = "/private/home/abisee/models/goldresponse.wordstats.json"
+    if opt['gold_response']:
+        outfile = "/private/home/abisee/models/goldresponse"
     else:
-        outfile = "%s.%s.%s.%s" % (
+        outfile = "%s.%s.%s" % (
             opt.get('model_file'),
             opt.get('datatype'),
-            "beam%i" % agent.opt['beam_size'],
-            "beamminnbest%i" % agent.opt['beam_min_n_best']
+            "beam%i" % agent.opt['beam_size']
             )
+        if agent.opt['beam_size'] > 1:
+            outfile += ".beamminnbest%i" % agent.opt['beam_min_n_best']
         if len(agent.opt['controls']) > 0:
-            outfile += "setcontrols:" + "_".join(["%s%s" % (c, str(d['set_value'])) for c,d in agent.opt['controls'].items()])
-        outfile += ".wordstats.json"
-    print("writing to outfile: %s" % outfile)
+            outfile += ".setcontrols:" + "_".join(["%s%s" % (c, str(d['set_value'])) for c,d in agent.opt['controls'].items()])
+        if len(agent.beam_features) > 0:
+            outfile += ".beamfeatures:" + "_".join(["%s%s" % (f, str(w)) for f,w in zip(agent.beam_features, agent.beam_feature_wts)])
+    if opt['num_examples'] != -1:
+        outfile += ".numex%i" % opt['num_examples']
+    outfile += ".wordstats.json"
+    print("\nWriting to outfile: %s\n" % outfile)
 
     cnt = 0
     word_statistics = {
@@ -193,6 +209,9 @@ def eval_wordstat(opt, print_parser=None):
         for c,d in agent.opt['controls'].items() if CONTROL2CONTINUOUS[c]
     }
 
+    # Init this to keep track of various output attributes
+    # For each attribute, we have a list of all the values
+    output_attribute_stats = {attr: [] for attr in ATTR2SENTSCOREFN.keys()} # string to list of floats
 
     def process_prediction(prediction, word_statistics):
         word_statistics['pred_list'].append(normalize_answer(prediction))
@@ -205,16 +224,23 @@ def eval_wordstat(opt, print_parser=None):
         word_statistics['freqs_cnt'] += Counter(freqs)
         return word_statistics
 
+    t0 = time.time()
     while not world.epoch_done():
+        # print("parlaying...")
         world.parley()
         if batch_size == 1:
             # raise Exception("some things aren't implemented for batchsize 1")
             cnt += 1
+            # print('updating stats...')
             prediction = world.acts[-1]['text']
+            if opt['gold_response']:
+                prediction = w.acts[0]['eval_labels'][0]
             word_statistics['context_list'].append(world.acts[0]['text'])
             word_statistics['pure_pred_list'].append(prediction)
             word_statistics = process_prediction(prediction, word_statistics)
             faithfulness_stats = update_faithfulness_stats(faithfulness_stats, world.acts[0], prediction, agent.opt['controls'])
+            history = get_history([world.acts[0]])[0] # triple
+            output_attribute_stats = update_output_attr_stats(output_attribute_stats, prediction, history)
         else:
             for world_idx,w in enumerate(world.worlds):
                 try:
@@ -222,16 +248,18 @@ def eval_wordstat(opt, print_parser=None):
                         prediction = w.acts[-1]['text']
                     except KeyError:
                         continue
-                    if opt['model']=="repeat_label":
+                    if opt['gold_response']:
                         prediction = w.acts[0]['eval_labels'][0]
                     word_statistics['context_list'].append(w.acts[0]['text'])
                     word_statistics['pure_pred_list'].append(prediction)
                 except IndexError:
                     continue
                 cnt += 1
+                # print('updating stats...')
                 word_statistics = process_prediction(prediction, word_statistics)
-
                 faithfulness_stats = update_faithfulness_stats(faithfulness_stats, w.acts[0], prediction, agent.opt['controls'])
+                history = get_history([w.acts[0]])[0] # triple
+                output_attribute_stats = update_output_attr_stats(output_attribute_stats, prediction, history)
 
         if log_time.time() > log_every_n_secs:
             report = world.report()
@@ -248,20 +276,21 @@ def eval_wordstat(opt, print_parser=None):
                 )
                 for b in bins
             ])
-            print(
-                "Word statistics: {}, avg_word_length: {:.{prec}f}, "
-                "avg_char_length: {:.{prec}f}"
-                .format(
-                    stat_str,
-                    numpy.array(word_statistics['mean_wlength']).mean(),
-                    numpy.array(word_statistics['mean_clength']).mean(),
-                    prec=2
-                )
-            )
+            # print(
+            #     "Word statistics: {}, avg_word_length: {:.{prec}f}, "
+            #     "avg_char_length: {:.{prec}f}"
+            #     .format(
+            #         stat_str,
+            #         numpy.array(word_statistics['mean_wlength']).mean(),
+            #         numpy.array(word_statistics['mean_clength']).mean(),
+            #         prec=2
+            #     )
+            # )
         if opt['num_examples'] > 0 and cnt >= opt['num_examples']:
             break
     if world.epoch_done():
         print("EPOCH DONE")
+    print("time to process %i examples: %f" % (cnt, time.time()-t0))
 
     if opt['compute_unique'] is True:
         unique_list = []
@@ -313,7 +342,7 @@ def eval_wordstat(opt, print_parser=None):
         )
     )
     report = world.report()
-    if opt['model']=='repeat_label':
+    if opt['gold_response']:
         report['ppl'] = 0.0
     print(report)
 
@@ -323,6 +352,7 @@ def eval_wordstat(opt, print_parser=None):
     data['report'] = report
     faithfulness_stats['confusion_matrices'] = {c:a.tolist() for c,a in faithfulness_stats['confusion_matrices'].items()} # need to convert to lists because can't write numpy arrays to json
     data['faithfulness_stats'] = faithfulness_stats
+    data['output_attribute_stats'] = output_attribute_stats
 
     # write results to file
     print("writing to %s" % outfile)
