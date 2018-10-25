@@ -923,6 +923,8 @@ class Beam(object):
         self.min_n_best = min_n_best
         self.block_ngram = block_ngram
 
+        self.partial_hyp_cache = {} # maps (timestep, hyp_id) to partial hypothesis (i.e. a list of HypothesisTails)
+
     @staticmethod
     def find_ngrams(input_list, n):
         """Get list of ngrams with context length n-1"""
@@ -954,10 +956,10 @@ class Beam(object):
             beam_scores = (softmax_probs +
                            self.scores.unsqueeze(1).expand_as(softmax_probs))
             for i in range(self.outputs[-1].size(0)):
-                current_hypo = [ii.tokenid.item() for ii in
-                                self.get_partial_hyp_from_tail(
-                                len(self.outputs) - 1, i)][::-1][1:]
                 if self.block_ngram > 0:
+                    current_hypo = [ii.tokenid.item() for ii in
+                                    self.get_partial_hyp_from_tail(
+                                    len(self.outputs) - 1, i)][::-1][1:]
                     current_ngrams = []
                     for ng in range(self.block_ngram):
                         ngrams = Beam.find_ngrams(current_hypo, ng)
@@ -1007,6 +1009,8 @@ class Beam(object):
 
     def done(self):
         """Return whether beam search is complete."""
+        # if self.eos_top and self.n_best_counter < self.min_n_best:
+        #     print("WARNING: extending beam search in order to get min_n_best")
         return self.eos_top and self.n_best_counter >= self.min_n_best
 
     def get_top_hyp(self):
@@ -1050,6 +1054,8 @@ class Beam(object):
         return hypothesis
 
     def get_partial_hyp_from_tail(self, ts, hypid):
+        if (ts, hypid) in self.partial_hyp_cache:
+            return self.partial_hyp_cache[(ts, hypid)]
         hypothesis_tail = self.HypothesisTail(
             timestep=ts,
             hypid=torch.Tensor([hypid]).long(),
@@ -1058,13 +1064,16 @@ class Beam(object):
         hyp_idx = []
         endback = hypothesis_tail.hypid
         for i in range(hypothesis_tail.timestep, -1, -1):
+            if (i, endback.item()) in self.partial_hyp_cache:
+                hyp_idx += self.partial_hyp_cache[(i, endback.item())]
+                break
             hyp_idx.append(self.HypothesisTail(
                 timestep=i,
                 hypid=endback,
                 score=self.all_scores[i][endback],
                 tokenid=self.outputs[i][endback]))
             endback = self.bookkeep[i - 1][endback]
-
+        self.partial_hyp_cache[(ts, hypid)] = hyp_idx # cache it
         return hyp_idx
 
     def get_rescored_finished(self, n_best=None):
