@@ -15,7 +15,4 @@ if __name__ == '__main__':
     parser = setup_args()
     parser = set_defaults(parser)
     opt = parser.parse_args()
-    if opt['beam_size'] == 1:
-        opt['batchsize'] = 64
-        opt['override']['batchsize'] = 64
     eval_wordstat(opt)
