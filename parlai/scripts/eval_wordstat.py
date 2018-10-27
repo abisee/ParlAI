@@ -163,10 +163,11 @@ def eval_wordstat(opt, print_parser=None):
     if opt['gold_response']:
         outfile = "/private/home/abisee/models/goldresponse"
     else:
-        outfile = "%s.%s.%s" % (
+        outfile = "%s.%s.%s.%s" % (
             opt.get('model_file'),
             opt.get('datatype'),
-            "beam%i" % agent.opt['beam_size']
+            "use%sreply" % agent.opt['use_reply'],
+            "beam%i" % agent.opt['beam_size'],
             )
         if agent.opt['beam_size'] > 1:
             outfile += ".beamminnbest%i" % agent.opt['beam_min_n_best']
