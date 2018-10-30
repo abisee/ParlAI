@@ -74,33 +74,5 @@ class SelfRevisedTeacher(FbDialogTeacher):
         super().__init__(opt, shared)
 
 
-class BothOriginalTeacher(FbDialogTeacher):
-    def __init__(self, opt, shared=None):
-        opt = copy.deepcopy(opt)
-        try:
-            cands = opt['task'].split(":")[2]
-            use_cands = False if cands == 'no_cands' else True
-        except:
-            use_cands = True
-        opt['datafile'] = _path(opt, 'both_original', use_cands)
-        super().__init__(opt, shared)
-
-
-class BothTeacher(BothOriginalTeacher):
-    pass
-
-
-class BothRevisedTeacher(FbDialogTeacher):
-    def __init__(self, opt, shared=None):
-        opt = copy.deepcopy(opt)
-        try:
-            cands = opt['task'].split(":")[2]
-            use_cands = False if cands == 'no_cands' else True
-        except:
-            use_cands = True
-        opt['datafile'] = _path(opt, 'both_revised', use_cands)
-        super().__init__(opt, shared)
-
-
 class DefaultTeacher(SelfOriginalTeacher):
     pass
