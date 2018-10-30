@@ -53,17 +53,30 @@ def get_word_counts(opt):
     return sents, word_counter
 
 
-def get_iwf(sent, word2iwf):
+def get_max_iwf(sent, word2iwf):
     """Returns:
-        iwf: iwf of sentence, using all words that are in the dictionary
+        max_iwf: max iwf of sentence, using all words that are in the dictionary
         problem_words: words in the sentence that aren't in the dictionary
     """
     words = sent.split()
     words = list(set(words))
     problem_words = [w for w in words if w not in word2iwf]
     ok_words = [w for w in words if w in word2iwf]
-    iwf = max([word2iwf[w] for w in ok_words])
-    return iwf, problem_words
+    max_iwf = max([word2iwf[w] for w in ok_words])
+    return max_iwf, problem_words
+
+
+def get_avg_iwf(sent, word2iwf):
+    """Returns:
+        avg_iwf: mean iwf of sentence, using all words that are in the dictionary
+        problem_words: words in the sentence that aren't in the dictionary
+    """
+    words = sent.split()
+    words = list(set(words))
+    problem_words = [w for w in words if w not in word2iwf]
+    ok_words = [w for w in words if w in word2iwf]
+    avg_iwf = sum([word2iwf[w] for w in ok_words])/len(ok_words)
+    return avg_iwf, problem_words
 
 
 def learn_niwf():
@@ -92,7 +105,7 @@ def learn_niwf():
     print("Computing IWF for all sentences in train and val sets...")
     sent2iwf = {}
     for sent in sents:
-        iwf, problem_words = get_iwf(sent, word2iwf)
+        iwf, problem_words = get_max_iwf(sent, word2iwf)
         assert len(problem_words)==0
         sent2iwf[sent] = iwf
 
@@ -117,7 +130,7 @@ def learn_niwf():
 
     # This fn uses word2iwf, min_iwf, max_iwf
     def sent2niwf_fn(sent):
-        sent_iwf, problem_words = get_iwf(sent, word2iwf)
+        sent_iwf, problem_words = get_max_iwf(sent, word2iwf)
         sent_niwf = get_niwf(sent_iwf, min_iwf, max_iwf)
         return sent_niwf, problem_words
 
@@ -125,7 +138,11 @@ def learn_niwf():
 
 
 def get_niwf(iwf, min_iwf, max_iwf):
-    return (iwf - min_iwf)/(max_iwf - min_iwf)
+    if iwf<min_iwf:
+        print("error: niwf is negative")
+        raise Exception()
+    niwf = (iwf - min_iwf)/(max_iwf - min_iwf)
+    return niwf
 
 
 def get_niwf_from_file(opt):
@@ -149,21 +166,34 @@ def get_niwf_from_file(opt):
 
     return sent2niwf
 
-
-def load_niwf_fn():
-    """Load niwf function from file"""
+def load_iwf_fn():
     outfile = "/private/home/abisee/ParlAI/data/ConvAI2_specificity/word2iwf.pkl"
-    print("Loading NIWF function from %s..." % outfile)
+    print("Loading IWF statistics from %s..." % outfile)
     with open(outfile, "rb") as f:
         data = pickle.load(f)
     word2iwf = data['word2iwf']
     min_iwf = data['min_iwf']
     max_iwf = data['max_iwf']
+    print("Done loading IWF statistics.")
+    return word2iwf, min_iwf, max_iwf
+
+
+def load_niwf_fn(combine_type='max'):
+    """Load niwf function from file"""
+    word2iwf, min_iwf, max_iwf = load_iwf_fn()
 
     # This fn uses word2iwf, min_iwf, max_iwf
     def sent2niwf_fn(sent):
-        sent_iwf, problem_words = get_iwf(sent, word2iwf)
-        sent_niwf = get_niwf(sent_iwf, min_iwf, max_iwf)
+        if combine_type=='max':
+            sent_iwf, problem_words = get_max_iwf(sent, word2iwf)
+        elif combine_type=='avg':
+            sent_iwf, problem_words = get_avg_iwf(sent, word2iwf)
+        else:
+            raise Exception()
+        try:
+            sent_niwf = get_niwf(sent_iwf, min_iwf, max_iwf) # normalize
+        except:
+            import pdb; pdb.set_trace()
         if sent_niwf < 0:
             print(sent)
             print(sent_niwf)
