@@ -20,7 +20,7 @@ import random
 
 
 # Instruction messages
-ONBOARD_MSG = '\nWelcome! Below is your character \
+ONBOARD_MSG = '\nWelcome! Below is your persona \
         (you can find it on the left side of the chat)\n \
         When you are ready to start your conversation, \
         click the "I am ready, continue" button below\n'
@@ -107,12 +107,11 @@ class PersonasGenerator(object):
                                                     './personas_idx_stack.pkl')
 
         self.personas_path = (
-            '{}/data/personas-{}-{}'.format(
-                 os.getcwd(),
-                 opt['datatype'],
-                 opt['persona_type'] + 'Revised' if opt['revised'] else 'Original'
-             )
-         )
+            '{}/data/personas-{}'.format(
+                os.getcwd(),
+                opt['persona_type'] + 'Revised' if opt['revised'] else 'Original'
+            )
+        )
         if not os.path.exists(self.personas_path):
             opt['personas_path'] = self.personas_path
             main_extract(opt)
@@ -143,7 +142,6 @@ class PersonasGenerator(object):
         idx = self.idx_stack.pop()
         data = np.load(os.path.join(self.personas_path,
                                     self.personas_name_list[int(idx)]))
-        data = [p.strip() for p in data] # remove whitespace from around each persona line
         return (idx, data)
 
     def push_persona(self, idx):
@@ -175,7 +173,7 @@ class PersonaProfileWorld(MTurkOnboardWorld):
         persona_text = ''
         for s in data:
             persona_text += '<b><span style="color:blue">' \
-                            '{}\n</span></b>'.format(detokenize(s.strip()))
+                            '{}\n</span></b>'.format(s.strip())
 
         self.mturk_agent.observe({
             'id': 'SYSTEM',
@@ -645,20 +643,3 @@ class Convai2EvalWorld(MultiAgentDialogWorld):
             n_jobs=len(self.agents),
             backend='threading'
         )(delayed(shutdown_agent)(agent) for agent in self.agents)
-
-
-def detokenize(text):
-    """Do really simple detokenization"""
-    text = text.strip()
-    tokens = text.split(' ')
-    tokens = [token if token!="i" else "I" for token in tokens] # replace i with I
-    text = " ".join(tokens)
-    for (sb_0, sb_1) in [
-        (' .', '.'),
-        (' ,', ','),
-        (' ?', '?'),
-        (' !', '!'),
-    ]:
-        text = text.replace(sb_0, sb_1)
-    text = text[:1].upper() + text[1:] # make first character capital
-    return text
