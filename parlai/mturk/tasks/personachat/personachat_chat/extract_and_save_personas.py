@@ -54,8 +54,7 @@ def main(opt):
     teacher_name += 'Revised' if opt.get('revised') else 'Original'
     opt['task'] = teacher_name
     assert 'personas_path' in opt, 'Must specify personas path'
-    # opt['datatype'] = 'train:ordered:stream'
-    opt['datatype'] = 'valid'
+    opt['datatype'] = 'train:ordered:stream'
     opt['numthreads'] = 1
     opt['batchsize'] = 1
     extract_and_save(opt)
