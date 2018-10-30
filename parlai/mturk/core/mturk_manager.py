@@ -99,9 +99,10 @@ class MTurkManager():
                 pass
 
         self.opt = opt
-        if self.opt['unique_worker'] or \
-                self.opt['unique_qual_name'] is not None:
+        if self.opt['unique_worker']:
             self.opt['allowed_conversations'] = 1
+        elif self.opt['max_hits_per_worker'] != 0 and self.opt['allowed_conversations'] == 0:
+            self.opt['allowed_conversations'] = self.opt['max_hits_per_worker']
         self.server_url = None
         self.topic_arn = None
         self.server_task_name = None
@@ -224,7 +225,8 @@ class MTurkManager():
                             self.hit_id_list.remove(hit_id)
                 time.sleep(10)
 
-        hit_status_thread = threading.Thread(target=update_status, daemon=True)
+        hit_status_thread = threading.Thread(
+            target=update_status, name='Hit-Status-Thread', daemon=True)
         hit_status_thread.start()
 
     def _reset_time_logs(self, init_load=False, force=False):
@@ -408,7 +410,9 @@ class MTurkManager():
                 if agent.message_request_time is not None:
                     agent.request_message()
 
-            state_thread = threading.Thread(target=send_state_data)
+            state_thread = threading.Thread(
+                name='restore-agent-{}'.format(agent.worker_id),
+                target=send_state_data)
             state_thread.daemon = True
             state_thread.start()
 
@@ -683,7 +687,11 @@ class MTurkManager():
                 if not did_arrive:
                     return
                 # call onboarding function
-                self.onboard_function(mturk_agent)
+                save_data = self.onboard_function(mturk_agent)
+                if save_data is not None:
+                    MTurkDataHandler.save_world_data(
+                        save_data, self.task_group_id,
+                        conversation_id, sandbox=self.is_sandbox)
 
             # once onboarding is done, move into a waiting world
             self._move_agents_to_waiting([mturk_agent])
@@ -850,8 +858,7 @@ class MTurkManager():
 
         shared_utils.print_and_log(logging.INFO, 'Setting up MTurk server...',
                                    should_print=True)
-        self.is_unique = self.opt['unique_worker'] or \
-            (self.opt['unique_qual_name'] is not None)
+        self.is_unique = self.opt['unique_worker']
         self.max_hits_per_worker = self.opt.get('max_hits_per_worker', 0)
         mturk_utils.create_hit_config(
             task_description=self.opt['task_description'],
@@ -1033,7 +1040,14 @@ class MTurkManager():
                 )
             )
             self.started_conversations += 1
-            task_function(mturk_manager=self, opt=opt, workers=agents)
+            save_data = \
+                task_function(mturk_manager=self, opt=opt, workers=agents)
+
+            if save_data is not None:
+                MTurkDataHandler.save_world_data(
+                    save_data, self.task_group_id, conversation_id,
+                    sandbox=self.is_sandbox)
+
             # Delete extra state data that is now unneeded
             for agent in agents:
                 agent.clear_messages()
@@ -1047,11 +1061,11 @@ class MTurkManager():
                         if agent.submitted_hit():
                             self.create_additional_hits(1)
 
+        if self.db_logger is not None:
+            self._maintain_hit_status()
         while not self.is_shutdown:
             if self.has_time_limit:
                 self._check_time_limit()
-            if self.db_logger is not None:
-                self._maintain_hit_status()
             # Loop forever starting task worlds until desired convos are had
             with self.agent_pool_change_condition:
                 valid_agents = self._get_unique_pool(eligibility_function)
