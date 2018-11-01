@@ -932,8 +932,6 @@ class Beam(object):
         self.min_n_best = min_n_best
         self.block_ngram = block_ngram
 
-        self.partial_hyp_cache = {} # maps (timestep, hyp_id) to partial hypothesis (i.e. a list of HypothesisTails)
-
     @staticmethod
     def find_ngrams(input_list, n):
         """Get list of ngrams with context length n-1"""
@@ -1063,8 +1061,6 @@ class Beam(object):
         return hypothesis
 
     def get_partial_hyp_from_tail(self, ts, hypid):
-        if (ts, hypid) in self.partial_hyp_cache:
-            return self.partial_hyp_cache[(ts, hypid)]
         hypothesis_tail = self.HypothesisTail(
             timestep=ts,
             hypid=torch.Tensor([hypid]).long(),
@@ -1073,16 +1069,13 @@ class Beam(object):
         hyp_idx = []
         endback = hypothesis_tail.hypid
         for i in range(hypothesis_tail.timestep, -1, -1):
-            if (i, endback.item()) in self.partial_hyp_cache:
-                hyp_idx += self.partial_hyp_cache[(i, endback.item())]
-                break
             hyp_idx.append(self.HypothesisTail(
                 timestep=i,
                 hypid=endback,
                 score=self.all_scores[i][endback],
                 tokenid=self.outputs[i][endback]))
             endback = self.bookkeep[i - 1][endback]
-        self.partial_hyp_cache[(ts, hypid)] = hyp_idx # cache it
+
         return hyp_idx
 
     def get_rescored_finished(self, n_best=None):
