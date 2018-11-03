@@ -51,6 +51,8 @@ import numpy
 import random
 import json
 import time
+import hashlib
+import os
 
 
 def setup_args(parser=None):
@@ -179,6 +181,20 @@ def eval_wordstat(opt, print_parser=None):
         outfile += ".numex%i" % opt['num_examples']
     outfile += ".wordstats.json"
     print("\nWriting to outfile: %s\n" % outfile)
+
+    data['outfile'] = outfile
+
+    # check if outfile is too long. if so, replace with hash
+    if len(os.path.basename(outfile))>255:
+        print("Outfile name is too long. hashing instead.")
+        hash_object = hashlib.md5(outfile.encode())
+        outfile = "%s.%s.wordstats.json" % (opt.get('model_file'), hash_object.hexdigest())
+        print("\nNew outfile: %s\n" % outfile)
+
+    # check you can write to it
+    with open(outfile, 'w') as f:
+        json.dump({}, f)
+    os.remove(outfile)
 
     cnt = 0
     word_statistics = {
