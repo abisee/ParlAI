@@ -96,17 +96,19 @@ def get_word_stats(text, agent_dict, bins=[0, 100, 1000, 100000]):
     return freqs, len(pred_freq), wlength, clength
 
 
-def update_sent_attr_stats(sent_attrs, sent_attrs_by_ctrl, response_obs, history):
-    prediction = response_obs['text']
+def update_sent_attr_stats(sent_attrs, history, sent_attrs_by_ctrl, response_act):
+    prediction = response_act['text']
 
-    used_ctrl_vals = response_obs['used_ctrl_vals'] # tuple length num_controls of (string, int) pairs, or None
-    if used_ctrl_vals is not None:
-        used_ctrl_vals = tuple([i for (_,i) in used_ctrl_vals]) # tuple length num_controls of ints
+    used_ctrl_vals = None
+    if 'used_ctrl_vals' in response_act:
+        used_ctrl_vals = tuple([i for (_,i) in response_act['used_ctrl_vals']]) # tuple length num_controls of ints
 
     for attr in sent_attrs.keys():
         attr_score = eval_attr(prediction, history, attr)
         sent_attrs[attr].append(attr_score)
-        sent_attrs_by_ctrl[attr][used_ctrl_vals].append(attr_score)
+
+        if used_ctrl_vals is not None:
+            sent_attrs_by_ctrl[attr][used_ctrl_vals].append(attr_score)
 
     return sent_attrs, sent_attrs_by_ctrl
 
@@ -146,7 +148,7 @@ def eval_wordstat(opt, print_parser=None):
     log_time = TimeLogger()
 
     data = {} # to write to json
-    data['opt'] = opt
+    data['opt'] = agent.opt
     if opt['gold_response']:
         outfile = "/private/home/abisee/models/goldresponse"
     else:
@@ -201,7 +203,7 @@ def eval_wordstat(opt, print_parser=None):
     # sent_attrs_by_ctrl is a dictionary mapping a sentence attribute to a np array.
     # Each array has shape corresponding to all possible control var combinations. The elements of the array are lists
     num_controls = len(agent.control_vars)
-    if num_controls>0:
+    if num_controls>0 and not opt['gold_response']:
         bucket_sizes = [agent.control_settings[ctrl]['num_buckets'] for ctrl in agent.control_vars] # list of the bucket sizes
         sent_attrs_by_ctrl = {}
         for attr in ATTR2SENTSCOREFN.keys():
@@ -230,23 +232,27 @@ def eval_wordstat(opt, print_parser=None):
             # raise Exception("some things aren't implemented for batchsize 1")
             cnt += 1
             # print('updating stats...')
-            prediction = world.acts[-1]['text']
+            response_act = world.acts[-1]
+            prediction = response_act['text']
             if opt['gold_response']:
-                prediction = w.acts[0]['eval_labels'][0]
+                prediction = world.acts[0]['eval_labels'][0]
+                response_act = {'text': prediction}
             word_statistics['context_list'].append(world.acts[0]['text'])
             word_statistics['pure_pred_list'].append(prediction)
             word_statistics = process_prediction(prediction, word_statistics)
             history = get_history([world.acts[0]])[0] # triple
-            sent_attrs, sent_attrs_by_ctrl = update_sent_attr_stats(sent_attrs, sent_attrs_by_ctrl, world.acts[-1], history)
+            sent_attrs, sent_attrs_by_ctrl = update_sent_attr_stats(sent_attrs, history, sent_attrs_by_ctrl, response_act)
         else:
             for world_idx,w in enumerate(world.worlds):
                 try:
                     try:
-                        prediction = w.acts[-1]['text']
+                        response_act = w.acts[-1]
+                        prediction = response_act['text']
                     except KeyError:
                         continue
                     if opt['gold_response']:
                         prediction = w.acts[0]['eval_labels'][0]
+                        response_act = {'text': prediction}
                     word_statistics['context_list'].append(w.acts[0]['text'])
                     word_statistics['pure_pred_list'].append(prediction)
                 except IndexError:
@@ -255,7 +261,7 @@ def eval_wordstat(opt, print_parser=None):
                 # print('updating stats...')
                 word_statistics = process_prediction(prediction, word_statistics)
                 history = get_history([w.acts[0]])[0] # triple
-                sent_attrs, sent_attrs_by_ctrl = update_sent_attr_stats(sent_attrs, sent_attrs_by_ctrl, w.acts[-1], history)
+                sent_attrs, sent_attrs_by_ctrl = update_sent_attr_stats(sent_attrs, history, sent_attrs_by_ctrl, response_act)
 
         if log_time.time() > log_every_n_secs:
             report = world.report()
@@ -347,6 +353,9 @@ def eval_wordstat(opt, print_parser=None):
     data['predictions'] = word_statistics['pure_pred_list']
     data['report'] = report
     data['sent_attrs'] = sent_attrs
+    if sent_attrs_by_ctrl is not None:
+        data['sent_attrs_by_ctrl'] = {k:v.tolist() for k,v in sent_attrs_by_ctrl.items()}
+    data['control_vars'] = agent.control_vars
 
     # write results to file
     print("writing to %s" % outfile)
