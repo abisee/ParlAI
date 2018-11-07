@@ -38,14 +38,10 @@ from parlai.core.worlds import create_task
 from parlai.core.utils import TimeLogger
 from parlai.core.metrics import normalize_answer
 from parlai.core.logs import TensorboardLogger
+from parlai_internal.projects.controllable_dialog.controllable_seq2seq.controls import ATTR2SENTSCOREFN, eval_attr
+from parlai_internal.projects.controllable_dialog.controllable_seq2seq.util import get_history
+
 from collections import Counter
-
-from parlai_internal.projects.seq2plan2seq.controlled_seq2seq.control_vars import eval_control, CONTROL2CONTINUOUS
-from parlai_internal.projects.seq2plan2seq.controlled_seq2seq.beamsearch_features import eval_attr, ATTR2SENTSCOREFN
-from parlai_internal.projects.seq2plan2seq.controlled_seq2seq.util import get_history
-
-import numpy as np
-
 import copy
 import numpy
 import random
@@ -99,31 +95,20 @@ def get_word_stats(text, agent_dict, bins=[0, 100, 1000, 100000]):
     clength = len(text)  # including spaces
     return freqs, len(pred_freq), wlength, clength
 
-def update_faithfulness_stats(faithfulness_stats, act0, prediction, controls):
-    for control in controls.keys():
-        # Intended control value
-        target_controlval_bucket, target_controlval = eval_control(act0, act0['eval_labels'][0], control)
-        assert target_controlval_bucket == int(act0[control])
 
-        # Get control value for prediction
-        reply_controlval_bucket, reply_controlval = eval_control(act0, prediction, control)
+def update_sent_attr_stats(sent_attrs, sent_attrs_by_ctrl, response_obs, history):
+    prediction = response_obs['text']
 
-        # Record in confusion matrix
-        faithfulness_stats['confusion_matrices'][control][target_controlval_bucket][reply_controlval_bucket] += 1
+    used_ctrl_vals = response_obs['used_ctrl_vals'] # tuple length num_controls of (string, int) pairs, or None
+    if used_ctrl_vals is not None:
+        used_ctrl_vals = tuple([i for (_,i) in used_ctrl_vals]) # tuple length num_controls of ints
 
-        # For continuous control variables, record continuous value
-        if CONTROL2CONTINUOUS[control]:
-            faithfulness_stats['continuous_values'][control]['target'][target_controlval_bucket].append(target_controlval)
-            faithfulness_stats['continuous_values'][control]['model'][target_controlval_bucket].append(reply_controlval)
-
-    return faithfulness_stats
-
-
-def update_output_attr_stats(output_attribute_stats, prediction, history):
-    for attr, l in output_attribute_stats.items():
+    for attr in sent_attrs.keys():
         attr_score = eval_attr(prediction, history, attr)
-        l.append(attr_score)
-    return output_attribute_stats
+        sent_attrs[attr].append(attr_score)
+        sent_attrs_by_ctrl[attr][used_ctrl_vals].append(attr_score)
+
+    return sent_attrs, sent_attrs_by_ctrl
 
 
 def eval_wordstat(opt, print_parser=None):
@@ -173,8 +158,8 @@ def eval_wordstat(opt, print_parser=None):
             )
         if agent.opt['beam_size'] > 1:
             outfile += ".beamminnbest%i" % agent.opt['beam_min_n_best']
-        if len(agent.opt['controls']) > 0:
-            outfile += ".setcontrols:" + "_".join(["%s%s" % (c, str(d['set_value'])) for c,d in agent.opt['controls'].items()])
+        if len(agent.control_settings) > 0:
+            outfile += ".setcontrols:" + "_".join(["%s%s" % (c, str(d['set_value'])) for c,d in agent.control_settings.items()])
         if len(agent.beam_features) > 0:
             outfile += ".beamfeatures:" + "_".join(["%s%s" % (f, str(w)) for f,w in zip(agent.beam_features, agent.beam_feature_wts)])
     if opt['num_examples'] != -1:
@@ -208,27 +193,23 @@ def eval_wordstat(opt, print_parser=None):
     }
     bins = [int(i) for i in opt['freq_bins'].split(',')]
 
-    # Init this to keep track of faithfulness metrics
-    faithfulness_stats = {}
-
-    # Keep a confusion matrix for each control var
-    faithfulness_stats['confusion_matrices'] = {
-        c: np.zeros((d['num_buckets'], d['num_buckets']))
-            for c,d in agent.opt['controls'].items()
-        }
-
-    # For the continuous control values, for each target bucket keep a list of all the target and model's control values
-    faithfulness_stats['continuous_values'] = {
-        c: {
-            'target': {b: [] for b in range(d['num_buckets'])},
-            'model': {b: [] for b in range(d['num_buckets'])},
-            }
-        for c,d in agent.opt['controls'].items() if CONTROL2CONTINUOUS[c]
-    }
-
-    # Init this to keep track of various output attributes
+    # Init this to keep track of sentence attributes
     # For each attribute, we have a list of all the values
-    output_attribute_stats = {attr: [] for attr in ATTR2SENTSCOREFN.keys()} # string to list of floats
+    sent_attrs = {attr: [] for attr in ATTR2SENTSCOREFN.keys()} # string to list of floats
+
+    # Init sent_attrs_by_ctrl to keep track of sentence attributes, bucketed by input control vars
+    # sent_attrs_by_ctrl is a dictionary mapping a sentence attribute to a np array.
+    # Each array has shape corresponding to all possible control var combinations. The elements of the array are lists
+    num_controls = len(agent.control_vars)
+    if num_controls>0:
+        bucket_sizes = [agent.control_settings[ctrl]['num_buckets'] for ctrl in agent.control_vars] # list of the bucket sizes
+        sent_attrs_by_ctrl = {}
+        for attr in ATTR2SENTSCOREFN.keys():
+            sent_attrs_by_ctrl[attr] = numpy.empty(tuple(bucket_sizes), dtype=object)
+            for index, _ in numpy.ndenumerate(sent_attrs_by_ctrl[attr]):
+                sent_attrs_by_ctrl[attr][index] = []
+    else:
+        sent_attrs_by_ctrl = None
 
     def process_prediction(prediction, word_statistics):
         word_statistics['pred_list'].append(normalize_answer(prediction))
@@ -255,9 +236,8 @@ def eval_wordstat(opt, print_parser=None):
             word_statistics['context_list'].append(world.acts[0]['text'])
             word_statistics['pure_pred_list'].append(prediction)
             word_statistics = process_prediction(prediction, word_statistics)
-            faithfulness_stats = update_faithfulness_stats(faithfulness_stats, world.acts[0], prediction, agent.opt['controls'])
             history = get_history([world.acts[0]])[0] # triple
-            output_attribute_stats = update_output_attr_stats(output_attribute_stats, prediction, history)
+            sent_attrs, sent_attrs_by_ctrl = update_sent_attr_stats(sent_attrs, sent_attrs_by_ctrl, world.acts[-1], history)
         else:
             for world_idx,w in enumerate(world.worlds):
                 try:
@@ -274,9 +254,8 @@ def eval_wordstat(opt, print_parser=None):
                 cnt += 1
                 # print('updating stats...')
                 word_statistics = process_prediction(prediction, word_statistics)
-                faithfulness_stats = update_faithfulness_stats(faithfulness_stats, w.acts[0], prediction, agent.opt['controls'])
                 history = get_history([w.acts[0]])[0] # triple
-                output_attribute_stats = update_output_attr_stats(output_attribute_stats, prediction, history)
+                sent_attrs, sent_attrs_by_ctrl = update_sent_attr_stats(sent_attrs, sent_attrs_by_ctrl, w.acts[-1], history)
 
         if log_time.time() > log_every_n_secs:
             report = world.report()
@@ -367,9 +346,7 @@ def eval_wordstat(opt, print_parser=None):
     data['word_statistics'] = word_statistics
     data['predictions'] = word_statistics['pure_pred_list']
     data['report'] = report
-    faithfulness_stats['confusion_matrices'] = {c:a.tolist() for c,a in faithfulness_stats['confusion_matrices'].items()} # need to convert to lists because can't write numpy arrays to json
-    data['faithfulness_stats'] = faithfulness_stats
-    data['output_attribute_stats'] = output_attribute_stats
+    data['sent_attrs'] = sent_attrs
 
     # write results to file
     print("writing to %s" % outfile)
