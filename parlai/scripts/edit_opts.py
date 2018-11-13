@@ -1,11 +1,13 @@
 import sys
 import pickle
 import json
+import os
 
 
 if __name__=="__main__":
     assert len(sys.argv)==2
     optfile = sys.argv[1]
+
     # with open(optfile, 'rb') as handle:
     #     new_opt = pickle.load(handle)
     with open(optfile, 'r') as f:
@@ -16,7 +18,9 @@ if __name__=="__main__":
     for key in sorted(new_opt.keys()):
         print(key, new_opt[key])
 
+    os.rename(optfile, optfile+'.old')
+
     # with open(optfile+'.new', 'wb') as handle:
     #     pickle.dump(new_opt, handle)
-    with open(optfile+'.new', 'w') as f:
+    with open(optfile, 'w') as f:
         json.dump(new_opt, f)
