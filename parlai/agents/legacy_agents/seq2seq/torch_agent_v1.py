@@ -14,14 +14,15 @@ Contains the following main utilities:
   the TorchAgent class
 * Output namedtuple which is the expected output type of the main abstract
   methods of the TorchAgent class
+* Beam class which provides some generic beam functionality for classes to use
 
 See below for documentation on each specific tool.
 """
 
 from parlai.core.agents import Agent
 from parlai.core.build_data import modelzoo_path
-from parlai.core.dict import DictionaryAgent
-from parlai.core.utils import set_namedtuple_defaults, argsort, padded_tensor, NEAR_INF
+from .dict_v1 import DictionaryAgent
+from .utils_v1 import set_namedtuple_defaults, argsort, padded_tensor, NEAR_INF
 
 try:
     import torch
@@ -31,10 +32,10 @@ except ImportError:
 
 from torch import optim
 from collections import deque, namedtuple, Counter
-from operator import attrgetter
-import math
 import json
 import random
+import math
+from operator import attrgetter
 
 """
 Batch is a namedtuple containing data being sent to an agent.
@@ -225,23 +226,16 @@ class TorchAgent(Agent):
             # copy initialized data from shared table
             self.opt = shared['opt']
             self.dict = shared['dict']
-            if self.opt['batchsize'] == 1:
-                # if we're not using batching (e.g. mturk), then replies really need
-                # to stay separated
-                self.replies = {}
-            else:
-                self.replies = shared['replies']
+            self.replies = shared['replies']
 
         if opt.get('numthreads', 1) > 1:
             torch.set_num_threads(1)
 
         # check for cuda
         self.use_cuda = not opt['no_cuda'] and torch.cuda.is_available()
-        self.multigpu = False
         if self.use_cuda:
             if opt['multigpu'] and opt['gpu'] != -1:
                 raise ValueError("Can't use --multigpu and --gpu together.")
-            self.multigpu = opt.get('multigpu') and opt.get('batchsize') > 1
             if not shared:
                 print('[ Using CUDA ]')
             if not shared and opt['gpu'] != -1:
@@ -1063,8 +1057,6 @@ class Beam(object):
 
     def done(self):
         """Return whether beam search is complete."""
-        # if self.eos_top and self.n_best_counter < self.min_n_best:
-        #     print("WARNING: extending beam search in order to get min_n_best")
         return self.eos_top and self.n_best_counter >= self.min_n_best
 
     def get_top_hyp(self):
