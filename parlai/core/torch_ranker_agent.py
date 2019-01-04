@@ -44,7 +44,7 @@ class TorchRankerAgent(TorchAgent):
                  "the flag --fixed-candidates-path. By default, this file is created "
                  "once and reused. To replace it, use the 'replace' option.")
 
-    def __init__(self, opt, shared):
+    def __init__(self, opt, shared=None):
         # Must call _get_model_file() first so that paths are updated if necessary
         # (e.g., a .dict file)
         model_file, opt = self._get_model_file(opt)
@@ -220,7 +220,8 @@ class TorchRankerAgent(TorchAgent):
                 raise ValueError(
                     "If using candidate source 'inline', then batch.candidate_vecs "
                     "cannot be None. If your task does not have inline candidates, "
-                    "consider using one of --candidates={'batch','fixed','vocab'}.")
+                    "consider using one of --{m}={{'batch','fixed','vocab'}}."
+                    "".format(m='candidates' if mode == 'train' else 'eval-candidates'))
 
             cands = batch.candidates
             cand_vecs = padded_3d(batch.candidate_vecs, use_cuda=self.use_cuda)

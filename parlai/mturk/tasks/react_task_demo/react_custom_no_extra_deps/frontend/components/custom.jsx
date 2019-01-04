@@ -8,6 +8,7 @@
 
 import React from 'react';
 import {FormControl, Button} from 'react-bootstrap';
+import $ from 'jquery';
 
 // Create custom components
 class EvaluatorIdleResponse extends React.Component {
@@ -41,7 +42,7 @@ class NumericResponse extends React.Component {
   }
 
   componentDidUpdate(prevProps, prevState, snapshot) {
-    if (this.props.active) {
+    if (this.props.active && !prevProps.active) {
       $("input#id_text_input").focus();
     }
   }
