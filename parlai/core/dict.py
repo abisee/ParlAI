@@ -18,6 +18,7 @@ import re
 
 try:
     from subword_nmt import learn_bpe, apply_bpe
+
     # Don't explicitly throw the runtime error unless the user needs it
     BPE_INSTALLED = True
 except ImportError:
@@ -27,7 +28,7 @@ RETOK = re.compile(r'\w+|[^\w\s]|\n', re.UNICODE)
 
 
 def escape(s):
-    """
+    r"""
     Replace potential special characters with escaped version.
 
     For example, \n => \\n and \t => \\t
@@ -39,7 +40,7 @@ def escape(s):
 
 
 def unescape(s):
-    """
+    r"""
     Revert escaped characters back to their special version.
 
     For example, \\n => \n and \\t => \t
@@ -116,73 +117,102 @@ class DictionaryAgent(Agent):
         """Add commandline arguments related to the dictionary."""
         dictionary = argparser.add_argument_group('Dictionary Arguments')
         dictionary.add_argument(
-            '-df', '--dict-file',
+            '-df',
+            '--dict-file',
             help='path to dictionary file. defaults to [model_file].dict if '
-                 'not set and model_file is set.',
-            hidden=True)
+            'not set and model_file is set.',
+            hidden=True,
+        )
         dictionary.add_argument(
             '--dict-initpath',
             hidden=True,
             help='path to a saved dictionary to load tokens / counts from to '
-                 'seed the dictionary with initial tokens and/or frequencies')
+            'seed the dictionary with initial tokens and/or frequencies',
+        )
         dictionary.add_argument(
-            '--dict-language', default=DictionaryAgent.default_lang,
+            '--dict-language',
+            default=DictionaryAgent.default_lang,
             hidden=True,
-            help='sets language for the punkt sentence tokenizer')
+            help='sets language for the punkt sentence tokenizer',
+        )
         dictionary.add_argument(
-            '--dict-max-ngram-size', type=int,
+            '--dict-max-ngram-size',
+            type=int,
             hidden=True,
             default=DictionaryAgent.default_maxngram,
             help='looks for ngrams of up to this size. this is ignored when '
-                 'building the dictionary. note: this takes approximate '
-                 'runtime of len(sentence)^max_ngram_size')
+            'building the dictionary. note: this takes approximate '
+            'runtime of len(sentence)^max_ngram_size',
+        )
         dictionary.add_argument(
-            '--dict-minfreq', default=DictionaryAgent.default_minfreq,
+            '--dict-minfreq',
+            default=DictionaryAgent.default_minfreq,
             type=int,
             help='minimum frequency of words to include them in sorted '
-                 'dict or minimum frequency of bpe codecs',
-            hidden=True)
+            'dict or minimum frequency of bpe codecs',
+            hidden=True,
+        )
         dictionary.add_argument(
-            '--dict-maxtokens', default=DictionaryAgent.default_maxtokens,
+            '--dict-maxtokens',
+            default=DictionaryAgent.default_maxtokens,
             type=int,
             help='max number of tokens to include in dictionary or bpe codecs',
-            hidden=True)
-        dictionary.add_argument(
-            '--dict-nulltoken', default=DictionaryAgent.default_null,
             hidden=True,
-            help='empty token, can be used for padding or just empty values')
+        )
         dictionary.add_argument(
-            '--dict-starttoken', default=DictionaryAgent.default_start,
+            '--dict-nulltoken',
+            default=DictionaryAgent.default_null,
             hidden=True,
-            help='token for starting sentence generation, if needed')
+            help='empty token, can be used for padding or just empty values',
+        )
         dictionary.add_argument(
-            '--dict-endtoken', default=DictionaryAgent.default_end,
+            '--dict-starttoken',
+            default=DictionaryAgent.default_start,
             hidden=True,
-            help='token for end of sentence markers, if needed')
+            help='token for starting sentence generation, if needed',
+        )
         dictionary.add_argument(
-            '--dict-unktoken', default=DictionaryAgent.default_unk,
+            '--dict-endtoken',
+            default=DictionaryAgent.default_end,
             hidden=True,
-            help='token to return for unavailable words')
+            help='token for end of sentence markers, if needed',
+        )
         dictionary.add_argument(
-            '-tok', '--dict-tokenizer', default=DictionaryAgent.default_tok,
+            '--dict-unktoken',
+            default=DictionaryAgent.default_unk,
+            hidden=True,
+            help='token to return for unavailable words',
+        )
+        dictionary.add_argument(
+            '-tok',
+            '--dict-tokenizer',
+            default=DictionaryAgent.default_tok,
             help='Which tokenizer to use. Defaults to "split", which splits '
-                 'on whitespace as well as recognizing basic punctuation. '
-                 'Other options include nltk and spacy.',
-            hidden=True)
-        dictionary.add_argument(
-            '--dict-lower', default=DictionaryAgent.default_lower, type='bool',
-            help='Whether or not to lowercase all text seen.',
-            hidden=True)
-        dictionary.add_argument(
-            '--bpe-debug', action='store_true',
+            'on whitespace as well as recognizing basic punctuation. '
+            'Other options include nltk and spacy.',
             hidden=True,
-            help='Leave BPE tokens untouched in output. Useful for debugging.')
+        )
         dictionary.add_argument(
-            '--dict-textfields', default=DictionaryAgent.default_textfields,
+            '--dict-lower',
+            default=DictionaryAgent.default_lower,
+            type='bool',
+            help='Whether or not to lowercase all text seen.',
+            hidden=True,
+        )
+        dictionary.add_argument(
+            '--bpe-debug',
+            action='store_true',
+            hidden=True,
+            help='Leave BPE tokens untouched in output. Useful for debugging.',
+        )
+        dictionary.add_argument(
+            '--dict-textfields',
+            default=DictionaryAgent.default_textfields,
             hidden=True,
             help='Observation fields which dictionary learns vocabulary from. '
-                 'Tasks with additional fields may add to this list to handle '
-                 'any extra vocabulary.')
+            'Tasks with additional fields may add to this list to handle '
+            'any extra vocabulary.',
+        )
         return dictionary
 
     def __init__(self, opt, shared=None):
@@ -207,7 +237,8 @@ class DictionaryAgent(Agent):
             self.tokenizer_fun = getattr(self, self.tokenizer + '_tokenize')
         except AttributeError:
             raise AttributeError(
-                'tokenizer type {} not yet supported'.format(self.tokenizer))
+                'tokenizer type {} not yet supported'.format(self.tokenizer)
+            )
 
         if shared:
             self.freq = shared.get('freq', {})
@@ -237,10 +268,10 @@ class DictionaryAgent(Agent):
             # If data built via pytorch data teacher, we need to load prebuilt dict
             if opt.get('pytorch_teacher_task'):
                 from parlai.scripts.build_pytorch_data import get_pyt_dict_file
+
                 opt['dict_file'] = get_pyt_dict_file(opt)
             if opt.get('dict_file'):
-                opt['dict_file'] = modelzoo_path(opt.get('datapath'),
-                                                 opt['dict_file'])
+                opt['dict_file'] = modelzoo_path(opt.get('datapath'), opt['dict_file'])
                 if os.path.isfile(opt['dict_file']):
                     # load pre-existing dictionary
                     self.load(opt['dict_file'])
@@ -248,8 +279,9 @@ class DictionaryAgent(Agent):
 
             if not loaded and opt.get('dict_initpath'):
                 # load seed dictionary
-                opt['dict_initpath'] = modelzoo_path(opt.get('datapath'),
-                                                     opt['dict_initpath'])
+                opt['dict_initpath'] = modelzoo_path(
+                    opt.get('datapath'), opt['dict_initpath']
+                )
                 # don't check isfile first, should fail if file not found
                 self.load(opt['dict_initpath'])
 
@@ -271,11 +303,13 @@ class DictionaryAgent(Agent):
             try:
                 import spacy
             except ImportError:
-                raise ImportError('Please install spacy and spacy "en" model: '
-                                  '`pip install -U spacy && '
-                                  'python -m spacy download en` '
-                                  'or find alternative installation options '
-                                  'at spacy.io')
+                raise ImportError(
+                    'Please install spacy and spacy "en" model: '
+                    '`pip install -U spacy && '
+                    'python -m spacy download en` '
+                    'or find alternative installation options '
+                    'at spacy.io'
+                )
             self.NLP = spacy.load('en')
         elif self.tokenizer == 'bpe':
             if not opt.get('dict_file'):
@@ -303,6 +337,7 @@ class DictionaryAgent(Agent):
                 self.save_path = opt['dict_file']
 
     def add_token(self, word):
+        """Add a single token to the dictionary."""
         if word not in self.tok2ind:
             index = len(self.tok2ind)
             self.tok2ind[word] = index
@@ -310,6 +345,8 @@ class DictionaryAgent(Agent):
 
     def __contains__(self, key):
         """
+        Return if the dictionary contains the key.
+
         If key is an int, returns whether the key is in the indices.
         If key is a str, return if the token is in the dict of tokens.
         """
@@ -320,6 +357,8 @@ class DictionaryAgent(Agent):
 
     def __getitem__(self, key):
         """
+        Lookup the word or ID.
+
         If key is an int, returns the corresponding token. If it does not
         exist, return the unknown token.
         If key is a str, return the token's index. If the token is not in the
@@ -338,6 +377,8 @@ class DictionaryAgent(Agent):
 
     def __setitem__(self, key, value):
         """
+        Set the frequency for a word to a value.
+
         If the key is not in the dictionary, add it to the dictionary and set
         its frequency to value.
         """
@@ -348,11 +389,13 @@ class DictionaryAgent(Agent):
         self.add_token(key)
 
     def keys(self):
+        """Return all the words in the dictionary."""
         return self.tok2ind.keys()
 
     def copy_dict(self, dictionary):
         """
         Overwrite own state with any state in the other dictionary.
+
         This allows loading of the contents of another dictionary while keeping
         the current dictionary version.
         """
@@ -360,39 +403,55 @@ class DictionaryAgent(Agent):
             setattr(self, k, v)
 
     def max_freq(self):
+        """Return the largest frequency of any nonspecial token."""
         return max(
             self.freq[k]
             for k in self.freq.keys()
-            if k not in [
-                self.null_token, self.end_token, self.start_token, self.unk_token
-            ]
+            if k
+            not in [self.null_token, self.end_token, self.start_token, self.unk_token]
         )
 
     def freqs(self):
+        """Return the frequency dictionary."""
+        # TODO: deprecate this
         return self.freq
 
     def spacy_tokenize(self, text, **kwargs):
+        """
+        Tokenize using spaCy.
+
+        Does whatever spaCy does. See https://spacy.io/.
+        """
         tokens = self.NLP.tokenizer(text)
         return [t.text for t in tokens]
 
     def spacy_span_tokenize(self, text):
-        """Returns tuple of tokens, spans."""
+        """Return tuple of tokens, spans."""
+        # TODO: can we delete this?
         tokens = self.NLP.tokenizer(text)
-        return ([t.text for t in tokens],
-                [(t.idx, t.idx + len(t.text)) for t in tokens])
+        return (
+            [t.text for t in tokens],
+            [(t.idx, t.idx + len(t.text)) for t in tokens],
+        )
 
     def nltk_tokenize(self, text, building=False):
         """
+        Tokenize using NLTK PunktTokenizer.
+
         Uses nltk-trained PunktTokenizer for sentence tokenization and
         Treebank Word Tokenizer for tokenizing words within sentences.
         """
-
-        return (token for sent in self.sent_tok.tokenize(text)
-                for token in self.word_tok.tokenize(sent))
+        return (
+            token
+            for sent in self.sent_tok.tokenize(text)
+            for token in self.word_tok.tokenize(sent)
+        )
 
     @staticmethod
     def re_tokenize(text):
-        """
+        r"""
+        Tokenize using a liberal regular expression.
+
         Find boundaries between word characters, newlines, and non-word
         non-whitespace tokens ``(r'[\\w\\n]+ | [^\\w\\s] | \\n')``.
 
@@ -404,21 +463,26 @@ class DictionaryAgent(Agent):
     @staticmethod
     def split_tokenize(text):
         """
+        Tokenize on whitespace and some limited punctuation.
+
         Splits tokens based on whitespace after adding whitespace around
         punctuation.
 
         Use re_tokenize if you want more robust handling of punctuation.
         """
-        return (text.replace('.', ' . ')
-                .replace(',', ' , ').replace(';', ' ; ').replace(':', ' : ')
-                .replace('!', ' ! ').replace('?', ' ? ')
-                .split())
+        return (
+            text.replace('.', ' . ')
+            .replace(',', ' , ')
+            .replace(';', ' ; ')
+            .replace(':', ' : ')
+            .replace('!', ' ! ')
+            .replace('?', ' ? ')
+            .split()
+        )
 
     def span_tokenize(self, text):
-        """
-        Tokenizes, and then calculates the starting index of each token in
-        the original string.
-        """
+        """Tokenize and find  starting index of each token in the original string."""
+        # TODO: can this be deleted?
         if self.tokenizer == 'spacy':
             # spacy has own
             return self.spacy_span_tokenize(text)
@@ -433,7 +497,7 @@ class DictionaryAgent(Agent):
         return tokens, indices
 
     def tokenize(self, text, building=False):
-        """Returns a sequence of tokens from the iterable."""
+        """Return a sequence of tokens from the iterable."""
         if self.lower:
             text = text.lower()
 
@@ -443,8 +507,7 @@ class DictionaryAgent(Agent):
         if not building and self.max_ngram_size > 1:
             # search for ngrams during parse-time
             # TODO(ahm): support build-time ngrams using word2vec heuristic?
-            word_tokens = find_ngrams(self.tok2ind, word_tokens,
-                                      self.max_ngram_size)
+            word_tokens = find_ngrams(self.tok2ind, word_tokens, self.max_ngram_size)
         return word_tokens
 
     def bpe_tokenize(self, text):
@@ -504,8 +567,7 @@ class DictionaryAgent(Agent):
 
         Initialize counts from other dictionary, or 0 if they aren't included.
         """
-        print('Dictionary: loading dictionary from {}'.format(
-              filename))
+        print('Dictionary: loading dictionary from {}'.format(filename))
 
         lower_special = self.null_token == self.null_token.lower()
         SPECIAL_TOKENS = {'__UNK__', '__NULL__', '__END__', '__START__'}
@@ -536,9 +598,7 @@ class DictionaryAgent(Agent):
 
         if self.tokenizer == 'bpe':
             needs_removal = self.bpehelper.finalize(
-                self.freq,
-                num_symbols=self.maxtokens,
-                minfreq=self.minfreq
+                self.freq, num_symbols=self.maxtokens, minfreq=self.minfreq
             )
             if needs_removal:
                 self._remove_non_bpe()
@@ -553,24 +613,28 @@ class DictionaryAgent(Agent):
         print('Dictionary: saving dictionary to {}'.format(filename))
 
         make_dir(os.path.dirname(filename))
-        with open(filename, 'a' if append else 'w') as write:
+        mode = 'a' if append else 'w'
+        with open(filename, mode, encoding='utf-8') as write:
             for i in self.ind2tok.keys():
                 tok = self.ind2tok[i]
                 cnt = self.freq[tok]
                 write.write('{tok}\t{cnt}\n'.format(tok=escape(tok), cnt=cnt))
 
         # save opt file
-        with open(filename + '.opt', 'w') as handle:
+        with open(filename + '.opt', 'w', encoding='utf-8') as handle:
             json.dump(self.opt, handle)
 
     def sort(self, trim=True):
         """
-        Sorts the dictionary, so that the elements with the lowest index have
-        the highest counts. This reindexes the dictionary according to the
-        sorted frequencies, breaking ties alphabetically by token.
+        Sort the dictionary.
 
-        :param bool trim: If True, truncate the dictionary based on minfreq and
-            maxtokens.
+        Inline operation. Rearranges the dictionary so that the elements with
+        the lowest index have the highest counts. This reindexes the dictionary
+        according to the sorted frequencies, breaking ties alphabetically by
+        token.
+
+        :param bool trim:
+            If True, truncate the dictionary based on minfreq and maxtokens.
         """
         # sort first by count, then alphabetically
         if trim:
@@ -590,11 +654,14 @@ class DictionaryAgent(Agent):
 
     def parse(self, txt_or_vec, vec_type=list):
         """
-        Convenience function for parsing either text or vectors of indices.
+        Parse either text or a vector of indices.
+
+        Calls `~txt2vec` if `txt_or_vec is a string, or `~vec2txt` otherwise.
 
         :param vec_type:
             type of the returned vector if the input is a string.
         """
+        # TODO: try to deprecate this, preferring straight txt2vec
         if type(txt_or_vec) == str:
             return self.txt2vec(txt_or_vec, vec_type)
         else:
@@ -602,25 +669,26 @@ class DictionaryAgent(Agent):
 
     def txt2vec(self, text, vec_type=list):
         """
-        Converts a string to a vector (list of ints).
+        Convert a string to a vector (list of ints).
 
         First runs a sentence tokenizer, then a word tokenizer.
 
-        ``vec_type`` is the type of the returned vector if the input is a string.
+        :param type vec_type:
+            The type of the returned vector if the input is a string. Suggested
+            ``list``, ``tuple``, ``set``, or ``np.ndarray``.
         """
         if vec_type == list or vec_type == tuple or vec_type == set:
             res = vec_type((self[token] for token in self.tokenize(str(text))))
         elif vec_type == np.ndarray:
-            res = np.fromiter(
-                (self[token] for token in self.tokenize(text)),
-                np.int
-            )
+            res = np.fromiter((self[token] for token in self.tokenize(text)), np.int)
         else:
             raise RuntimeError('Type {} not supported by dict'.format(vec_type))
         return res
 
     def vec2txt(self, vector, delimiter=' '):
         """
+        Convert a vector of IDs to a string.
+
         Converts a vector (iterable of ints) into a string, with each token
         separated by the delimiter (default ``' '``).
         """
@@ -707,7 +775,7 @@ class _BPEHelper(object):
             self._load_from_codecs()
 
     def _load_from_codecs(self):
-        with open(self.codecs, 'r') as codecs_file:
+        with open(self.codecs, 'r', encoding='utf-8') as codecs_file:
             self.bpe = apply_bpe.BPE(codecs_file)
 
     def tokenize(self, text):
@@ -752,7 +820,7 @@ class _BPEHelper(object):
             num_symbols = 30000
         if minfreq <= 0:
             minfreq = 2
-        with open(self.codecs, 'w') as outstream:
+        with open(self.codecs, 'w', encoding='utf-8') as outstream:
             learn_bpe.learn_bpe(
                 dictionary,
                 outstream,
@@ -765,9 +833,8 @@ class _BPEHelper(object):
         return True
 
     def copy_codecs_file(self, target_file):
-        """
-        Copy the codecs file to a new location.
-        """
-        with open(target_file, 'w') as wfile, open(self.codecs) as rfile:
-            for line in rfile:
-                wfile.write(line)
+        """Copy the codecs file to a new location."""
+        with open(target_file, 'w', encoding='utf-8') as wfile:
+            with open(self.codecs, encoding='utf-8') as rfile:
+                for line in rfile:
+                    wfile.write(line)

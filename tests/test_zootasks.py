@@ -14,28 +14,35 @@ class TestZooAndTasks(unittest.TestCase):
 
     def test_zoolist_types(self):
         from parlai.zoo.model_list import model_list
+
         self._check_types(model_list, 'Zoo')
 
     def test_tasklist_types(self):
         from parlai.tasks.task_list import task_list
+
         self._check_types(task_list, 'Task')
 
     def test_tasklist(self):
         from parlai.tasks.task_list import task_list
+
         self._check_directory(
-            "task_list", task_list, "parlai/tasks", "task",
-            ignore=['fromfile'],
+            "task_list", task_list, "parlai/tasks", "task", ignore=['fromfile']
         )
 
     def test_zoolist(self):
         from parlai.zoo.model_list import model_list
+
         self._check_directory(
-            "model_list", model_list, "parlai/zoo", "id",
-            ignore=["fasttext_cc_vectors", "fasttext_vectors", "glove_vectors",
-                    "bert"]
+            "model_list",
+            model_list,
+            "parlai/zoo",
+            "id",
+            ignore=["fasttext_cc_vectors", "fasttext_vectors", "glove_vectors", "bert"],
         )
 
-    def _check_directory(self, listname, thing_list, thing_dir, thing_key, ignore=[]):
+    def _check_directory(self, listname, thing_list, thing_dir, thing_key, ignore=None):
+        if ignore is None:
+            ignore = []
         dirs = testing_utils.git_ls_dirs()
         # get only directories directly in the thing directory
         dirs = [d for d in dirs if os.path.dirname(d) == thing_dir]
@@ -73,16 +80,16 @@ class TestZooAndTasks(unittest.TestCase):
             for key, value in thing.items():
                 if key == 'tags':
                     self.assertIsInstance(
-                        value, list,
-                        "{} {} tags is not a list".format(listname, name)
+                        value, list, "{} {} tags is not a list".format(listname, name)
                     )
                     self.assertIsNot(
                         value, [], "{} {} must have some tags".format(listname, name)
                     )
                 else:
                     self.assertIsInstance(
-                        value, str,
-                        "{} {}:{} must be string".format(listname, name, key)
+                        value,
+                        str,
+                        "{} {}:{} must be string".format(listname, name, key),
                     )
 
 

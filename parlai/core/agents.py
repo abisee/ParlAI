@@ -5,6 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 """
+Common Abstract classes for many agents.
+
 This module provides a set of basic agents:
 
     ``Agent(object)``
@@ -40,12 +42,10 @@ This module also provides a utility method:
 """
 
 from parlai.core.build_data import modelzoo_path
-from parlai.core.utils import warn_once
+from parlai.core.utils import warn_once, load_opt_file
 from .metrics import Metrics, aggregate_metrics
 import copy
 import importlib
-import json
-import pickle
 import random
 import os
 
@@ -78,28 +78,49 @@ class Agent(object):
         return t
 
     def getID(self):
+        """Return the agent ID."""
         return self.id
 
     def epoch_done(self):
+        """
+        Return whether the epoch is done or not.
+
+        :rtype: boolean
+        """
         return False
 
     def reset(self):
+        """
+        Reset the agent, clearing its observation.
+
+        Many subclasses implement additional reset logic.
+        """
         self.observation = None
 
     def reset_metrics(self):
+        """
+        Reset any metrics reported by this agent.
+
+        This is called to indicate metrics should start fresh, and is typically
+        called between loggings or after a `report()`.
+        """
         pass
 
     def save(self, path=None):
         """
-        If applicable, save any parameters needed to recreate this agent from
-        loaded parameters.
+        Save any parameters needed to recreate this agent from loaded parameters.
+
+        Default implementation is no-op, but many subagents implement this logic.
         """
         pass
 
     def share(self):
         """
-        If applicable, share any parameters needed to create a shared version
-        of this agent.
+        Share any parameters needed to create a shared version of this agent.
+
+        Default implementation shares the class and the opt, but most agents will
+        want to also add model weights, teacher data, etc. This especially useful
+        for avoiding providing pointers to large objects to all agents in a batch.
         """
         shared = {}
         shared['class'] = type(self)
@@ -113,8 +134,9 @@ class Agent(object):
 
 class Teacher(Agent):
     """
-    Basic Teacher agent which keeps track of how many times it's received
-    messages. Teachers provide the ``report()`` method to get back metrics.
+    Basic Teacher agent that keeps track of how many times it's received messages.
+
+    Teachers provide the ``report()`` method to get back metrics.
     """
 
     def __init__(self, opt, shared=None):
@@ -131,30 +153,44 @@ class Teacher(Agent):
 
     # return state/action dict based upon passed state
     def act(self):
+        """Act upon the previous observation."""
         if self.observation is not None and 'text' in self.observation:
             t = {'text': 'Hello agent!'}
         return t
 
     def epoch_done(self):
+        """Return whether the epoch is done."""
         return self.epochDone
 
     # Default unknown length
     def num_examples(self):
+        """
+        Return the number of examples (e.g. individual utterances) in the dataset.
+
+        Default implementation returns `None`, indicating an unknown number.
+        """
         return None
 
     def num_episodes(self):
+        """
+        Return the number of episodes (e.g. conversations) in the dataset.
+
+        Default implementation returns `None`, indicating an unknown number.
+        """
         return None
 
-    # Return transformed metrics showing total examples and accuracy if avail.
     def report(self):
+        """Return metrics showing total examples and accuracy if available."""
         return self.metrics.report()
 
     def reset(self):
+        """Reset the teacher."""
         super().reset()
         self.reset_metrics()
         self.epochDone = False
 
     def reset_metrics(self):
+        """Reset metrics."""
         self.metrics.clear()
 
     def share(self):
@@ -166,8 +202,10 @@ class Teacher(Agent):
 
 class MultiTaskTeacher(Teacher):
     """
+    MultiTaskTeacher which teaches multiple tasks.
+
     Creates a teacher that is actually a set of teachers each based on a task
-    string--each of these teachers will get called in turn,
+    string -- each of these teachers will get called in turn,
     either randomly or in order.  They are all in the same world (they are the
     same agent switching tasks).
 
@@ -189,8 +227,7 @@ class MultiTaskTeacher(Teacher):
                 if k:
                     opt_singletask = copy.deepcopy(opt)
                     opt_singletask['task'] = k
-                    self.tasks.extend(create_task_agent_from_taskname(
-                        opt_singletask))
+                    self.tasks.extend(create_task_agent_from_taskname(opt_singletask))
         self.task_idx = -1
         self.new_task = True
         self.random = opt.get('datatype') == 'train'
@@ -208,6 +245,7 @@ class MultiTaskTeacher(Teacher):
             sum += weight
 
     def num_examples(self):
+        """Return the number of examples."""
         if not hasattr(self, 'num_exs'):
             # num_examples is sum of all examples in all tasks
             tasks_num_exs = [t.num_examples() for t in self.tasks]
@@ -218,6 +256,7 @@ class MultiTaskTeacher(Teacher):
         return self.num_exs
 
     def num_episodes(self):
+        """Return the number of episodes."""
         if not hasattr(self, 'num_eps'):
             # num_episodes is sum of all num_episodes in all tasks
             tasks_num_eps = [t.num_episodes() for t in self.tasks]
@@ -228,15 +267,18 @@ class MultiTaskTeacher(Teacher):
         return self.num_eps
 
     def observe(self, observation):
+        """Make an observation."""
         return self.tasks[self.task_idx].observe(observation)
 
     def act(self):
+        """Act on the previous observation."""
         if self.new_task:
             self.new_task = False
             if self.random:
                 # select random teacher
                 self.task_idx = random.choices(
-                    self.task_choices, cum_weights=self.cum_task_weights)[0]
+                    self.task_choices, cum_weights=self.cum_task_weights
+                )[0]
             else:
                 # do at most one full loop looking for unfinished task
                 for _ in range(len(self.tasks)):
@@ -253,6 +295,7 @@ class MultiTaskTeacher(Teacher):
         return t
 
     def epoch_done(self):
+        """Return whether all subtasks are completed."""
         for t in self.tasks:
             if not t.epoch_done():
                 return False
@@ -260,21 +303,26 @@ class MultiTaskTeacher(Teacher):
 
     # return transformed metrics showing total examples and accuracy if avail.
     def report(self):
+        """Report aggregated metrics across all subtasks."""
         return aggregate_metrics(self.tasks)
 
     def reset(self):
+        """Reset all subtasks."""
         for t in self.tasks:
             t.reset()
 
     def reset_metrics(self):
+        """Reset metrics for each subtask."""
         for t in self.tasks:
             t.reset_metrics()
 
     def save(self):
+        """Save each subtask."""
         for t in self.tasks:
             t.save()
 
     def share(self):
+        """Shares this teacher by sharing each subtask."""
         shared = {}
         shared['class'] = type(self)
         shared['opt'] = self.opt
@@ -302,32 +350,32 @@ def name_to_agent_class(name):
     words = name.split('_')
     class_name = ''
     for w in words:
-        class_name += (w[0].upper() + w[1:])
+        class_name += w[0].upper() + w[1:]
     class_name += 'Agent'
     return class_name
 
 
 def compare_init_model_opts(opt, curr_opt):
-    """
-    Prints loud warning when `init_model` opts differ from those that
-    are being loaded.
-    """
+    """Print loud warning when `init_model` opts differ from previous configuration."""
     if opt.get('init_model') is None:
         return
+    opt['init_model'] = modelzoo_path(opt['datapath'], opt['init_model'])
     optfile = opt['init_model'] + '.opt'
     if not os.path.isfile(optfile):
         return
-    init_model_opt = _load_opt_file(optfile)
+    init_model_opt = load_opt_file(optfile)
 
     extra_opts = {}
     different_opts = {}
-    exempt_opts = ['model_file', 'dict_file', 'override', 'starttime',
-                   'init_model']
+    exempt_opts = ['model_file', 'dict_file', 'override', 'starttime', 'init_model']
 
     # search through init model opts
     for k, v in init_model_opt.items():
-        if (k not in exempt_opts and k in init_model_opt and
-                init_model_opt[k] != curr_opt.get(k)):
+        if (
+            k not in exempt_opts
+            and k in init_model_opt
+            and init_model_opt[k] != curr_opt.get(k)
+        ):
             if isinstance(v, list):
                 if init_model_opt[k] != list(curr_opt[k]):
                     different_opts[k] = ','.join([str(x) for x in v])
@@ -346,31 +394,24 @@ def compare_init_model_opts(opt, curr_opt):
     extra_strs = ['{}: {}'.format(k, v) for k, v in extra_opts.items()]
     if extra_strs:
         print('\n' + '*' * 75)
-        print('[ WARNING ] : your model is being loaded with opts that do not '
-              'exist in the model you are initializing the weights with: '
-              '{}'.format(','.join(extra_strs)))
+        print(
+            '[ WARNING ] : your model is being loaded with opts that do not '
+            'exist in the model you are initializing the weights with: '
+            '{}'.format(','.join(extra_strs))
+        )
 
-    different_strs = ['--{} {}'.format(k, v).replace('_', '-') for k, v in
-                      different_opts.items()]
+    different_strs = [
+        '--{} {}'.format(k, v).replace('_', '-') for k, v in different_opts.items()
+    ]
     if different_strs:
         print('\n' + '*' * 75)
-        print('[ WARNING ] : your model is being loaded with opts that differ '
-              'from the model you are initializing the weights with. Add the '
-              'following args to your run command to change this: \n'
-              '\n{}'.format(' '.join(different_strs)))
+        print(
+            '[ WARNING ] : your model is being loaded with opts that differ '
+            'from the model you are initializing the weights with. Add the '
+            'following args to your run command to change this: \n'
+            '\n{}'.format(' '.join(different_strs))
+        )
         print('*' * 75)
-
-
-def _load_opt_file(optfile):
-    try:
-        # try json first
-        with open(optfile, 'r') as handle:
-            opt = json.load(handle)
-    except UnicodeDecodeError:
-        # oops it's pickled
-        with open(optfile, 'rb') as handle:
-            opt = pickle.load(handle)
-    return opt
 
 
 def load_agent_module(opt):
@@ -387,7 +428,7 @@ def load_agent_module(opt):
     model_file = opt['model_file']
     optfile = model_file + '.opt'
     if os.path.isfile(optfile):
-        new_opt = _load_opt_file(optfile)
+        new_opt = load_opt_file(optfile)
         # TODO we need a better way to say these options are never copied...
         if 'datapath' in new_opt:
             # never use the datapath from an opt dump
@@ -399,8 +440,10 @@ def load_agent_module(opt):
         if opt.get('override'):
             for k, v in opt['override'].items():
                 if str(v) != str(new_opt.get(k, None)):
-                    print("[ warning: overriding opt['{}'] to {} ("
-                          "previously: {} )]".format(k, v, new_opt.get(k, None)))
+                    print(
+                        "[ warning: overriding opt['{}'] to {} ("
+                        "previously: {} )]".format(k, v, new_opt.get(k, None))
+                    )
                 new_opt[k] = v
         # add model arguments to new_opt if they aren't in new_opt already
         for k, v in opt.items():
@@ -426,19 +469,23 @@ def load_agent_module(opt):
             curr_version = new_opt.get('model_version', 0)
             if curr_version != model_class.model_version():
                 model = new_opt['model']
-                m = ('It looks like you are trying to load an older version of'
-                     ' the selected model. Change your model argument to use '
-                     'the old version from parlai/agents/legacy_agents: for '
-                     'example: `-m legacy:{m}:{v}` or '
-                     '`--model parlai.agents.legacy_agents.{m}.{m}_v{v}:{c}`')
+                m = (
+                    'It looks like you are trying to load an older version of'
+                    ' the selected model. Change your model argument to use '
+                    'the old version from parlai/agents/legacy_agents: for '
+                    'example: `-m legacy:{m}:{v}` or '
+                    '`--model parlai.agents.legacy_agents.{m}.{m}_v{v}:{c}`'
+                )
                 if '.' not in model:
                     # give specific error message if it's easy
-                    raise RuntimeError(m.format(m=model, v=curr_version,
-                                                c=model_class.__name__))
+                    raise RuntimeError(
+                        m.format(m=model, v=curr_version, c=model_class.__name__)
+                    )
                 else:
                     # otherwise generic one
-                    raise RuntimeError(m.format(m='modelname', v=curr_version,
-                                                c='ModelAgent'))
+                    raise RuntimeError(
+                        m.format(m='modelname', v=curr_version, c='ModelAgent')
+                    )
 
         # if we want to load weights from --init-model, compare opts with
         # loaded ones
@@ -489,24 +536,28 @@ def get_agent_module(dir_name):
         # will check legacy_agents.seq2seq.seq2seq_v0:Seq2seqAgent
         s = dir_name.split(':')
         if len(s) != 3:
-            raise RuntimeError('legacy paths should follow pattern '
-                               'legacy:model:version; you used {}'
-                               ''.format(dir_name))
+            raise RuntimeError(
+                'legacy paths should follow pattern '
+                'legacy:model:version; you used {}'
+                ''.format(dir_name)
+            )
         model_name = s[1]  # seq2seq
         module_name = 'parlai.agents.legacy_agents.{m}.{m}_v{v}'.format(
-            m=model_name, v=s[2])
+            m=model_name, v=s[2]
+        )
         class_name = name_to_agent_class(model_name)
     elif dir_name.startswith('projects:'):
         # e.g. -m projects:personachat:kvmemnn
         s = dir_name.split(':')
         if len(s) != 3:
-            raise RuntimeError('projects paths should follow pattern '
-                               'projects:folder:model; you used {}'
-                               ''.format(dir_name))
+            raise RuntimeError(
+                'projects paths should follow pattern '
+                'projects:folder:model; you used {}'
+                ''.format(dir_name)
+            )
         folder_name = s[1]
         model_name = s[2]
-        module_name = 'projects.{p}.{m}.{m}'.format(
-            m=model_name, p=folder_name)
+        module_name = 'projects.{p}.{m}.{m}'.format(m=model_name, p=folder_name)
         class_name = name_to_agent_class(model_name)
     elif ':' in dir_name:
         # e.g. -m "parlai.agents.seq2seq.seq2seq:Seq2seqAgent"
@@ -553,6 +604,7 @@ def create_agent(opt, requireModelExists=False):
     if opt.get('datapath', None) is None:
         # add datapath, it is missing
         from parlai.core.params import ParlaiParser, get_model_name
+
         parser = ParlaiParser(add_parlai_args=False)
         parser.add_parlai_data_path()
         # add model args if they are missing
@@ -567,8 +619,10 @@ def create_agent(opt, requireModelExists=False):
     if opt.get('model_file'):
         opt['model_file'] = modelzoo_path(opt.get('datapath'), opt['model_file'])
         if requireModelExists and not os.path.isfile(opt['model_file']):
-            raise RuntimeError('WARNING: Model file does not exist, check to make '
-                               'sure it is correct: {}'.format(opt['model_file']))
+            raise RuntimeError(
+                'WARNING: Model file does not exist, check to make '
+                'sure it is correct: {}'.format(opt['model_file'])
+            )
         # Attempt to load the model from the model file first (this way we do
         # not even have to specify the model name as a parameter)
         model = load_agent_module(opt)
@@ -668,7 +722,7 @@ def get_task_module(taskname):
             words = teacher.split('_')
             teacher_name = ''
             for w in words:
-                teacher_name += (w[0].upper() + w[1:])
+                teacher_name += w[0].upper() + w[1:]
             teacher = teacher_name + "Teacher"
     else:
         teacher = "DefaultTeacher"
@@ -677,10 +731,12 @@ def get_task_module(taskname):
     return teacher_class
 
 
-def add_task_flags_to_agent_opt(agent, opt, flags):
+# TODO: remove this. It was added but doesn't have a clear use case now.
+def _add_task_flags_to_agent_opt(agent, opt, flags):
     """
-    Allows to insert task flags in the task name itself, they are put inside
-    the opt before the task is created.
+    Handle task flags provided by the task name itself.
+
+    With this you can set specific opts with `-t task:flag=foo`.
     """
     fl = flags.split(':')
     task = []
@@ -703,17 +759,20 @@ def create_task_agent_from_taskname(opt):
     with the parameter ``1`` in ``opt['task']`` to be used by the class
     ``Task1kTeacher``.
     """
-    if not (opt.get('task') or
-            opt.get('pytorch_teacher_task') or
-            opt.get('pytorch_teacher_dataset')):
-        raise RuntimeError('No task specified. Please select a task with ' +
-                           '--task {task_name}.')
+    if not (
+        opt.get('task')
+        or opt.get('pytorch_teacher_task')
+        or opt.get('pytorch_teacher_dataset')
+    ):
+        raise RuntimeError(
+            'No task specified. Please select a task with ' + '--task {task_name}.'
+        )
     if not opt.get('task'):
         opt['task'] = 'pytorch_teacher'
     if ',' not in opt['task']:
         # Single task
         teacher_class = get_task_module(opt['task'])
-        add_task_flags_to_agent_opt(teacher_class, opt, opt['task'])
+        _add_task_flags_to_agent_opt(teacher_class, opt, opt['task'])
         task_agents = teacher_class(opt)
         if type(task_agents) != list:
             task_agents = [task_agents]
@@ -757,8 +816,7 @@ def _create_task_agents(opt):
     my_module = importlib.import_module(module_name)
     try:
         # Tries to call the create_agent function in agents.py
-        create_agent = getattr(my_module, 'create_agents')
-        task_agents = create_agent(opt)
+        task_agents = my_module.create_agent(opt)
     except AttributeError:
         # Create_agent not found, so try to create the teacher directly.
         return create_task_agent_from_taskname(opt)

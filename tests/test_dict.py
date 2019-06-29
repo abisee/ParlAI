@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 from parlai.core.build_data import modelzoo_path
 from parlai.core.dict import find_ngrams
+from parlai.core.params import ParlaiParser
 import parlai.core.testing_utils as testing_utils
 import os
 import shutil
@@ -68,11 +69,7 @@ class TestDictionary(unittest.TestCase):
         appropriate error.
         """
         # Download model, move to a new location
-        datapath = os.path.join(
-            (os.path.dirname(os.path.dirname(os.path.dirname(
-             os.path.realpath(__file__))))),
-            'ParlAI/data',
-        )
+        datapath = ParlaiParser().parse_args(print_args=False)['datapath']
         try:
             # remove unittest models if there before
             shutil.rmtree(os.path.join(datapath, 'models/unittest'))
@@ -80,15 +77,12 @@ class TestDictionary(unittest.TestCase):
             pass
         testing_utils.download_unittest_models()
 
-        zoo_path = 'models:unittest/seq2seq/model'
+        zoo_path = 'zoo:unittest/seq2seq/model'
         model_path = modelzoo_path(datapath, zoo_path)
         os.remove(model_path + '.dict')
         # Test that eval model fails
         with self.assertRaises(RuntimeError):
-            testing_utils.eval_model(dict(
-                task='babi:task1k:1',
-                model_file=model_path
-            ))
+            testing_utils.eval_model(dict(task='babi:task1k:1', model_file=model_path))
         try:
             # remove unittest models if there after
             shutil.rmtree(os.path.join(datapath, 'models/unittest'))
@@ -100,12 +94,10 @@ class TestDictionary(unittest.TestCase):
         or model_file fails
         """
         import parlai.scripts.train_model as tms
+
         with testing_utils.capture_output():
             parser = tms.setup_args()
-            parser.set_params(
-                task='babi:task1k:1',
-                model='seq2seq'
-            )
+            parser.set_params(task='babi:task1k:1', model='seq2seq')
             popt = parser.parse_args(print_args=False)
             with self.assertRaises(RuntimeError):
                 tms.TrainLoop(popt)
