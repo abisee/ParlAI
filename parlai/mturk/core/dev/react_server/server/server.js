@@ -274,7 +274,7 @@ class LocalAgentState {
 // ======================= <Socket> =======================
 
 // Socket function types
-// TODO move to constants
+// FIXME move to constants
 const AGENT_MESSAGE = 'agent message'  // Message from an agent
 const WORLD_MESSAGE = 'world message'  // Message from world to agent
 const HEARTBEAT = 'heartbeat'   // Heartbeat from agent, carries current state
@@ -283,7 +283,7 @@ const SERVER_PONG = 'server pong'  // pong to confirm uptime
 const MESSAGE_BATCH = 'message batch' // packet containing batch of messages
 const AGENT_DISCONNECT = 'agent disconnect'  // Notes an agent disconnecting
 const SNS_MESSAGE = 'sns message'   // packet from an SNS message
-const STATIC_MESSAGE = 'static message'  // packet from static done POST
+const SUBMIT_MESSAGE = 'submit message'  // packet from done POST
 const AGENT_STATE_CHANGE = 'agent state change'  // state change from parlai
 const AGENT_ALIVE = 'agent alive'  // packet from an agent alive event
 const UPDATE_STATE = 'update state'  // packet for updating agent client state
@@ -319,7 +319,7 @@ var connection_id_to_agent_state = {};
 var NOTIF_ID = 'MTURK_NOTIFICATIONS';
 
 // Handles sending a message through the socket
-// TODO create a version that handles wrapping into a packet?
+// FIXME create a version that handles wrapping into a packet?
 function _send_message(connection_id, event_name, event_data) {
   // Find the connection's socket
   var socket = connection_id_to_socket[connection_id];
@@ -390,8 +390,6 @@ function handle_pong(data) {
 // and then forwarding the alive to the world if it came from a client. If
 // there is already an agent state for this agent, we handle the reconnection
 // event ourselves.
-// TODO handle specific agent alive messages sent after a task is already
-// completed
 function handle_alive(socket, data) {
   var sender_id = data['sender_id'];
   var in_connection_id = _get_from_conn_id(data);
@@ -512,7 +510,9 @@ wss.on('connection', function(socket) {
   // handles routing a packet to the desired recipient
   socket.on('message', function(data) {
     try {
-      // TODO add all of these to the data model, create them in SocketManager
+      // FIXME It's somewhat annoying that these constants come up and
+      // redefined all over the place, would be useful to have a singular
+      // source for the API
       data = JSON.parse(data);
       if (data['type'] == AGENT_ALIVE) {
         handle_alive(socket, data['content']);
@@ -655,15 +655,15 @@ app.post('/sns_posts', async function(req, res, next) {
   }
 });
 
-app.post('/submit_static', async function(req, res, next) {
-  res.end('Successful static POST');
+app.post('/submit_hit', async function(req, res, next) {
+  res.end('Successful submit POST');
   let content = req.body;
   var task_group_id = content['task_group_id'];
   var agent_id = content['agent_id'];
   var assignment_id = content['assignment_id'];
   var worker_id = content['worker_id'];
   var response_data = content['response_data'];
-  var message_id = assignment_id + '_' + worker_id + '_static_submit';
+  var message_id = assignment_id + '_' + worker_id + '_submit';
 
   var data = {
     text: '[DATA_SUBMIT]',
@@ -680,7 +680,7 @@ app.post('/submit_static', async function(req, res, next) {
     receiver_id: world_id,
     data: data,
   };
-  _send_message(world_id, STATIC_MESSAGE, msg);
+  _send_message(world_id, SUBMIT_MESSAGE, msg);
   /// TODO on submit clean up static tasks  (must be by assign id)
 });
 
